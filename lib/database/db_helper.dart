@@ -32,7 +32,6 @@ class DbHelper {
 
   Future<Database> _initDatabase() async {
     String path;
-
     String dbName = kDebugMode ? 'manga_manager_debug.db' : 'manga_manager.db';
 
     if (kIsWeb) {
@@ -68,7 +67,7 @@ class DbHelper {
 
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE mangas (
+      CREATE TABLE IF NOT EXISTS mangas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome_pt TEXT NOT NULL,
         nome_en TEXT,
@@ -81,24 +80,29 @@ class DbHelper {
     ''');
 
     await db.execute('''
-      CREATE TABLE configuracoes (
+      CREATE TABLE IF NOT EXISTS configuracoes (
         chave TEXT PRIMARY KEY,
         valor TEXT NOT NULL
       )
     ''');
 
-    await db.insert('configuracoes', {'chave': 'tema', 'valor': 'dark'});
+    await db.execute('''
+      INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('tema', 'dark')
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('''
-        CREATE TABLE configuracoes (
+        CREATE TABLE IF NOT EXISTS configuracoes (
           chave TEXT PRIMARY KEY,
           valor TEXT NOT NULL
         )
       ''');
-      await db.insert('configuracoes', {'chave': 'tema', 'valor': 'dark'});
+
+      await db.execute('''
+        INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('tema', 'dark')
+      ''');
     }
   }
 
