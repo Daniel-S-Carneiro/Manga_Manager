@@ -4,7 +4,7 @@
 
 # --- Definições do App ---
 !define APP_NAME "Manga Manager"
-!define APP_VERSION "1.1.0"
+!define APP_VERSION "1.0.0"
 !define PUBLISHER "Daniel-S-Carneiro"
 !define EXE_NAME "manga_manager.exe"
 !define REG_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
