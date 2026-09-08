@@ -11,6 +11,7 @@ import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'dart:async';
 import 'utils/error_handler.dart';
 import 'utils/theme_notifier.dart';
+import 'services/update_service.dart';
 
 void main() async {
   runZonedGuarded(
@@ -123,6 +124,9 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      UpdateService.checkUpdate(context);
+    });
   }
 
   @override

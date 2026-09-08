@@ -50,6 +50,8 @@ dependencies:
       url: https://github.com/google/flutter-desktop-embedding.git
       path: plugins/window_size
   flutter_inappwebview: ^6.1.5
+  package_info_plus: ^9.0.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:
