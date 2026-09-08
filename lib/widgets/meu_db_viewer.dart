@@ -21,7 +21,6 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
   late Future<List<Map<String, dynamic>>> _mangaListFuture;
   late Future<Map<String, String>> _caminhosSistemaFuture;
 
-  // Variáveis de controle do versionamento Git
   String _installedVersion = '...';
   String _latestGitVersion = 'Carregando...';
   bool _hasUpdate = false;
@@ -118,10 +117,89 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
     return null;
   }
 
+  Future<void> _baixarEAtualizarAutomaticamente() async {
+    if (_downloadUrl == null) return;
+
+    // Fecha o diálogo de informações de versão
+    Navigator.pop(context);
+
+    // Mostra um diálogo de progresso informando o download
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(
+              child: Text(
+                'Baixando e aplicando atualização em segundo plano...',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (!mounted) return;
+
+      final filePath = p.join(tempDir.path, 'manga_manager_update.exe');
+
+      // Baixa o arquivo do instalador do GitHub
+      final response = await http.get(Uri.parse(_downloadUrl!));
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final file = io.File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
+        if (!mounted) return;
+
+        if (io.Platform.isWindows) {
+          await io.Process.start(filePath, [
+            '/S',
+          ], mode: io.ProcessStartMode.detached);
+          io.exit(0);
+        } else {
+          Navigator.pop(context); // Fecha o loading
+          final uri = Uri.parse(_downloadUrl!);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
+        }
+      } else {
+        Navigator.pop(context); // Fecha o loading
+        _mostrarErroDialog('Falha ao baixar o arquivo de atualização.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Fecha o loading
+      _mostrarErroDialog('Erro ao executar a atualização: $e');
+    }
+  }
+
+  void _mostrarErroDialog(String mensagem) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Erro na Atualização'),
+        content: Text(mensagem),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _mostrarDialogoVersao(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: Row(
             children: [
@@ -170,7 +248,7 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
                   ),
                   child: Text(
                     _hasUpdate
-                        ? 'Existe uma nova atualização disponível para download!'
+                        ? 'Existe uma nova atualização disponível!'
                         : 'Você já está utilizando a versão mais recente.',
                     style: TextStyle(
                       fontSize: 12,
@@ -185,7 +263,7 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Fechar'),
             ),
             if (_hasUpdate && _downloadUrl != null)
@@ -194,15 +272,9 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
                 ),
-                icon: const Icon(Icons.download, size: 16),
-                label: const Text('Atualizar Agora'),
-                onPressed: () async {
-                  Navigator.pop(context);
-                  final uri = Uri.parse(_downloadUrl!);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
+                icon: const Icon(Icons.system_update, size: 16),
+                label: const Text('Atualizar Automaticamente'),
+                onPressed: () => _baixarEAtualizarAutomaticamente(),
               ),
           ],
         );
@@ -550,8 +622,6 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
                     label: const Text('Simular Celular'),
                     onPressed: () => _mostrarMenuSimuladorCelular(context),
                   ),
-
-                  // Botão de versão (Verde = Ok, Vermelho = Atualização disponível)
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _checkingUpdate
