@@ -4,11 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateService {
   static const String _repoOwner = 'Daniel-S-Carneiro';
   static const String _repoName = 'Manga_Manager';
+
+  static String get gitApiUrl =>
+      'https://api.github.com/repos/$_repoOwner/$_repoName/releases/latest';
 
   /// Consulta a versão do app e compara com as Releases do GitHub
   static Future<void> checkUpdate(
@@ -19,11 +24,8 @@ class UpdateService {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
 
-      final url = Uri.parse(
-        'https://api.github.com/repos/$_repoOwner/$_repoName/releases/latest',
-      );
       final response = await http.get(
-        url,
+        Uri.parse(gitApiUrl),
         headers: {'Accept': 'application/vnd.github+json'},
       );
 
@@ -58,7 +60,6 @@ class UpdateService {
     }
   }
 
-  /// Compara versões semânticas (ex: 1.0.0 contra 1.0.1)
   static bool _isNewerVersion(String current, String latest) {
     final c = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
     final l = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
@@ -71,7 +72,6 @@ class UpdateService {
     return false;
   }
 
-  /// Filtra o executável/pacote correto de acordo com o sistema operacional
   static String? _getAssetUrlForPlatform(List<dynamic> assets) {
     if (kIsWeb) return null;
 
@@ -136,14 +136,204 @@ class UpdateService {
             child: const Text('Agora não'),
           ),
           ElevatedButton(
-            onPressed: () async {
+            onPressed: () {
               Navigator.pop(ctx);
-              final uri = Uri.parse(downloadUrl);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              baixarEInstalar(context, downloadUrl);
+            },
+            child: const Text('Atualizar Automaticamente'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _escapePowerShell(String value) => value.replaceAll("'", "''");
+
+  /// Inicia um executável elevado. O Windows mostra o UAC para o usuário aceitar.
+  static Future<bool> _iniciarComElevacao(
+    String exePath, {
+    List<String> args = const [],
+  }) async {
+    final escapedPath = _escapePowerShell(exePath);
+    final argumentList = args.isEmpty
+        ? ''
+        : " -ArgumentList '${args.map(_escapePowerShell).join("','")}'";
+
+    final result = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-WindowStyle',
+      'Hidden',
+      '-Command',
+      'try { Start-Process -FilePath \'$escapedPath\'$argumentList -Verb RunAs; exit 0 } catch { exit 1 }',
+    ]);
+
+    return result.exitCode == 0;
+  }
+
+  static Future<bool> _reabrirAppComoAdministrador() async {
+    final exeAtual = Platform.resolvedExecutable;
+    final ok = await _iniciarComElevacao(exeAtual);
+    if (ok) {
+      exit(0);
+    }
+    return false;
+  }
+
+  static Future<void> baixarEInstalar(
+    BuildContext context,
+    String downloadUrl,
+  ) async {
+    final status = ValueNotifier<String>(
+      'Baixando e aplicando atualização em segundo plano...',
+    );
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        content: ValueListenableBuilder<String>(
+          valueListenable: status,
+          builder: (_, mensagem, _) => Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(child: Text(mensagem)),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (!context.mounted) return;
+
+      final filePath = p.join(tempDir.path, 'manga_manager_update.exe');
+      final response = await http.get(Uri.parse(downloadUrl));
+      if (!context.mounted) return;
+
+      if (response.statusCode != 200) {
+        Navigator.pop(context);
+        status.dispose();
+        _mostrarErroDialog(context, 'Falha ao baixar o arquivo de atualização.');
+        return;
+      }
+
+      final file = File(filePath);
+      await file.writeAsBytes(response.bodyBytes);
+      if (!context.mounted) return;
+
+      if (!kIsWeb && Platform.isWindows) {
+        status.value =
+            'Aguardando permissão de administrador. Aceite o aviso do Windows...';
+
+        final elevado = await _iniciarComElevacao(filePath, args: ['/S']);
+        if (!context.mounted) return;
+
+        if (elevado) {
+          exit(0);
+        }
+
+        Navigator.pop(context);
+        status.dispose();
+        _mostrarDialogoPermissaoAdmin(context, filePath);
+        return;
+      }
+
+      Navigator.pop(context);
+      status.dispose();
+      final uri = Uri.parse(downloadUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      status.dispose();
+      _mostrarErroDialog(context, 'Erro ao executar a atualização: $e');
+    }
+  }
+
+  static void _mostrarDialogoPermissaoAdmin(
+    BuildContext context,
+    String instaladorPath,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Permissão de administrador'),
+        content: const Text(
+          'O instalador precisa de permissão de administrador. '
+          'Se o aviso do Windows foi cancelado, aceite-o na próxima tentativa '
+          'ou reabra o Manga Manager como administrador e atualize de novo.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final ok = await _reabrirAppComoAdministrador();
+              if (!ok && context.mounted) {
+                _mostrarErroDialog(
+                  context,
+                  'A permissão foi recusada. Abra o app pelo menu de contexto: '
+                  '"Executar como administrador".',
+                );
               }
             },
-            child: const Text('Baixar Atualização'),
+            child: const Text('Reabrir como administrador'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const AlertDialog(
+                  content: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 20),
+                      Expanded(
+                        child: Text(
+                          'Aguardando permissão de administrador...',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+              final elevado = await _iniciarComElevacao(
+                instaladorPath,
+                args: ['/S'],
+              );
+              if (!context.mounted) return;
+              if (elevado) {
+                exit(0);
+              }
+              Navigator.pop(context);
+              _mostrarDialogoPermissaoAdmin(context, instaladorPath);
+            },
+            child: const Text('Tentar de novo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static void _mostrarErroDialog(BuildContext context, String mensagem) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Erro na Atualização'),
+        content: Text(mensagem),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
           ),
         ],
       ),

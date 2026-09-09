@@ -4,7 +4,9 @@
 
 # --- Definições do App ---
 !define APP_NAME "Manga Manager"
-!define APP_VERSION "1.2.0"
+!ifndef APP_VERSION
+  !error "APP_VERSION deve ser passado pelo build_installer.cmd (lido do pubspec.yaml)"
+!endif
 !define PUBLISHER "Daniel-S-Carneiro"
 !define EXE_NAME "manga_manager.exe"
 !define REG_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"

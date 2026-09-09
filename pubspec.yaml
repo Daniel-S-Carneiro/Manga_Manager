@@ -39,7 +39,7 @@ dependencies:
   path: ^1.9.1
   sqlite3_flutter_libs: ^0.6.0+eol
   url_launcher: ^6.3.2
-  file_picker: ^11.0.2
+  file_picker: ^11.0.3
   path_provider: ^2.1.6
   sqflite_common_ffi_web: ^1.1.1
   reorderable_grid_view: ^2.2.0
@@ -52,6 +52,7 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   package_info_plus: ^9.0.1
   http: ^1.6.0
+  archive: ^4.2.0
 
 dev_dependencies:
   flutter_test:

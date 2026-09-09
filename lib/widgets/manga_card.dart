@@ -52,33 +52,43 @@ class MangaCardWidget extends StatelessWidget {
               padding: const EdgeInsets.all(12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment
+                    .spaceBetween, // Mantém o capítulo preso embaixo
                 children: [
-                  Text(
-                    manga['nome_pt'] ?? 'Sem nome',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 16,
-                      height: 1.2,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
+                  // Usamos Flexible para o bloco de texto ocupar o espaço com segurança sem estourar
                   Flexible(
-                    child: Text(
-                      manga['nome_en'] ?? '',
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.6,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          manga['nome_pt'] ?? 'Sem nome',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.onSurface,
+                            fontSize: 17,
+                            height: 1.2,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        fontSize: 13,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                        const SizedBox(height: 4),
+                        Text(
+                          manga['nome_en'] ?? '',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.6,
+                            ),
+                            fontSize: 13,
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
                   ),
-                  const Spacer(),
+                  // Capítulo travado firmemente logo acima do rodapé
                   Text(
                     'Capítulo: ${manga['capitulo'] ?? 0}',
                     style: TextStyle(
@@ -96,36 +106,51 @@ class MangaCardWidget extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      minimumSize: const Size(0, 38),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    height: 40, // Altura fixa padronizada
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                    ),
-                    onPressed: () => _abrirLink(context),
-                    child: const Text(
-                      'Ler',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
+                      onPressed: () => _abrirLink(context),
+                      child: const Text(
+                        'Ler',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.amber, size: 20),
-                    onPressed: () => _editarManga(context),
-                    tooltip: 'Editar',
+                SizedBox(
+                  height:
+                      40, // Mesma altura fixa para alinhar com o botão "Ler"
+                  width: 40,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.05,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: IconButton(
+                      padding: EdgeInsets
+                          .zero, // Remove o padding interno padrão para centralizar o ícone
+                      icon: const Icon(
+                        Icons.edit,
+                        color: Colors.amber,
+                        size: 20,
+                      ),
+                      onPressed: () => _editarManga(context),
+                      tooltip: 'Editar',
+                    ),
                   ),
                 ),
               ],

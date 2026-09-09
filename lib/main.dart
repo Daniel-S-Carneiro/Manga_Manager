@@ -3,6 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
+
+// Imports necessários para o Sqflite FFI e Web
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
+
 import 'database/db_helper.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/manga_form.dart';
@@ -13,10 +18,42 @@ import 'utils/error_handler.dart';
 import 'utils/theme_notifier.dart';
 import 'services/update_service.dart';
 
+// 1. Função de inicialização e debug movida para o escopo global
+Future<void> setupDatabaseFactory() async {
+  debugPrint('--- DEBUG DB: Inicializando Factory do Sqflite ---');
+
+  try {
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+      debugPrint('--- DEBUG DB: Factory definida para WEB ---');
+    } else if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      debugPrint('--- DEBUG DB: Factory definida para DESKTOP (FFI) ---');
+    } else {
+      debugPrint(
+        '--- DEBUG DB: Factory padrão Mobile (Android/iOS) mantida ---',
+      );
+    }
+
+    final db = await DbHelper().database;
+    debugPrint(
+      '--- DEBUG DB: Banco de dados aberto com sucesso! Versão: ${await db.getVersion()} ---',
+    );
+  } catch (e, stackTrace) {
+    debugPrint('--- DEBUG DB ERRO: Falha ao inicializar o banco: $e ---');
+    debugPrint(stackTrace.toString());
+  }
+}
+
 void main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      await setupDatabaseFactory();
 
       if (!kIsWeb) {
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -35,7 +72,6 @@ void main() async {
 
           windowManager.waitUntilReadyToShow(windowOptions, () async {
             await windowManager.setMinimumSize(minSize);
-
             await windowManager.maximize();
             await windowManager.show();
             await windowManager.focus();
@@ -104,10 +140,22 @@ class MangaManagerApp extends StatelessWidget {
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  State<MainScreen> createState() => MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class MainController {
+  static MainScreenState? _state;
+
+  static void register(MainScreenState state) {
+    _state = state;
+  }
+
+  static void carregarLote() {
+    _state?._carregarLote(refresh: true);
+  }
+}
+
+class MainScreenState extends State<MainScreen> {
   bool _showForm = false;
   final ScrollController _scrollController = ScrollController();
   final List<Map<String, dynamic>> _mangas = [];
@@ -122,6 +170,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    MainController.register(this); // registra a instância
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -147,7 +196,6 @@ class _MainScreenState extends State<MainScreen> {
   void _onSearchChanged(String query) {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
 
-    // Aguarda 300ms de pausa na digitação antes de disparar a busca
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       setState(() {
         _searchQuery = query;
@@ -226,13 +274,19 @@ class _MainScreenState extends State<MainScreen> {
               Column(
                 children: [
                   const SizedBox(height: 12),
-                  Text(
-                    'Meu Gerenciador de Mangás',
-                    style: TextStyle(
-                      fontSize: 22,
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Meu Gerenciador de Mangás',
+                        style: TextStyle(
+                          fontSize: 22,
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                    ],
                   ),
                   TopBar(
                     showForm: _showForm,

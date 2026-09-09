@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 class BrowserScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen> {
   InAppWebViewController? webViewController;
+  WebViewEnvironment? _webViewEnvironment;
   bool _hasError = false;
   String _errorMessage = '';
   bool _isLoading = true;
@@ -34,6 +36,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
   @override
   void initState() {
     super.initState();
+
+    if (_isDesktop) {
+      _initWebViewEnvironment();
+    }
 
     if (!kIsWeb && io.Platform.isLinux) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -58,6 +64,22 @@ class _BrowserScreenState extends State<BrowserScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
+  }
+
+  Future<void> _initWebViewEnvironment() async {
+    try {
+      final appSupportDir = await getApplicationSupportDirectory();
+      final env = await WebViewEnvironment.create(
+        settings: WebViewEnvironmentSettings(
+          userDataFolder: '${appSupportDir.path}/webViewData',
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _webViewEnvironment = env;
+        });
+      }
+    } catch (_) {}
   }
 
   bool get _isDesktop {
@@ -110,6 +132,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isDesktop && _webViewEnvironment == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Focus(
       focusNode: _focusNode,
       autofocus: true,
@@ -169,6 +195,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 : Stack(
                     children: [
                       InAppWebView(
+                        webViewEnvironment: _webViewEnvironment,
                         initialUrlRequest: URLRequest(
                           url: WebUri(widget.initialUrl),
                         ),

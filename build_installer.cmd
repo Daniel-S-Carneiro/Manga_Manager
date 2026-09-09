@@ -32,9 +32,19 @@ if %ERRORLEVEL% NEQ 0 goto :error_linux
 
 echo.
 echo [4/5] Iniciando compilacao do instalador Windows com NSIS...
+set "APP_VERSION="
+for /f "tokens=2 delims= " %%a in ('findstr /r /c:"^version:" "pubspec.yaml"') do (
+    for /f "tokens=1 delims=+" %%b in ("%%a") do set "APP_VERSION=%%b"
+)
+set "APP_VERSION=!APP_VERSION:"=!"
+if not defined APP_VERSION goto :error_version
+if "!APP_VERSION!"=="" goto :error_version
+
+echo Versao lida do pubspec.yaml: !APP_VERSION!
+
 set "NSIS_PATH=C:\Program Files (x86)\NSIS\makensis.exe"
 set "BUILD_PATH=build\windows\x64\runner\Release"
-"%NSIS_PATH%" /DAPP_BUILD_DIR="%BUILD_PATH%" "installer.nsi"
+"%NSIS_PATH%" /DAPP_BUILD_DIR="%BUILD_PATH%" /DAPP_VERSION=!APP_VERSION! "installer.nsi"
 if %ERRORLEVEL% NEQ 0 goto :error_nsis
 
 echo.
@@ -69,6 +79,7 @@ echo.
 echo ==================================================
 echo Processo concluido com sucesso!
 echo Arquivos disponiveis na pasta: dist\
+echo - Versao:  !APP_VERSION!
 echo - Windows: MangaManager_Setup.exe
 echo - Android: MangaManager.apk
 echo - Linux:   MangaManager_Linux_x64.tar.gz
@@ -85,6 +96,10 @@ goto :fail
 
 :error_linux
 echo ERRO: O build Linux via WSL falhou!
+goto :fail
+
+:error_version
+echo ERRO: Nao foi possivel ler a versao em pubspec.yaml (linha version: x.y.z+n).
 goto :fail
 
 :error_nsis
