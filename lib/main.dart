@@ -1,49 +1,34 @@
 import 'dart:ui';
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
-
-// Imports necessários para o Sqflite FFI e Web
+import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
-
 import 'database/db_helper.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/manga_form.dart';
 import 'widgets/manga_card.dart';
-import 'package:reorderable_grid_view/reorderable_grid_view.dart';
-import 'dart:async';
 import 'utils/error_handler.dart';
 import 'utils/theme_notifier.dart';
 import 'services/update_service.dart';
+import 'controllers/refresh_controller.dart';
 
-// 1. Função de inicialização e debug movida para o escopo global
 Future<void> setupDatabaseFactory() async {
-  debugPrint('--- DEBUG DB: Inicializando Factory do Sqflite ---');
-
   try {
     if (kIsWeb) {
       databaseFactory = databaseFactoryFfiWeb;
-      debugPrint('--- DEBUG DB: Factory definida para WEB ---');
     } else if (defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux ||
         defaultTargetPlatform == TargetPlatform.macOS) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
-      debugPrint('--- DEBUG DB: Factory definida para DESKTOP (FFI) ---');
-    } else {
-      debugPrint(
-        '--- DEBUG DB: Factory padrão Mobile (Android/iOS) mantida ---',
-      );
     }
-
-    final db = await DbHelper().database;
-    debugPrint(
-      '--- DEBUG DB: Banco de dados aberto com sucesso! Versão: ${await db.getVersion()} ---',
-    );
+    debugPrint('Database factory inicializada com sucesso.');
   } catch (e, stackTrace) {
-    debugPrint('--- DEBUG DB ERRO: Falha ao inicializar o banco: $e ---');
+    debugPrint('ERRO CRÍTICO DB: Falha ao inicializar a factory: $e');
     debugPrint(stackTrace.toString());
   }
 }
@@ -71,7 +56,6 @@ void main() async {
           );
 
           windowManager.waitUntilReadyToShow(windowOptions, () async {
-            await windowManager.setMinimumSize(minSize);
             await windowManager.maximize();
             await windowManager.show();
             await windowManager.focus();
@@ -143,18 +127,6 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => MainScreenState();
 }
 
-class MainController {
-  static MainScreenState? _state;
-
-  static void register(MainScreenState state) {
-    _state = state;
-  }
-
-  static void carregarLote() {
-    _state?._carregarLote(refresh: true);
-  }
-}
-
 class MainScreenState extends State<MainScreen> {
   bool _showForm = false;
   final ScrollController _scrollController = ScrollController();
@@ -170,18 +142,27 @@ class MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    MainController.register(this); // registra a instância
+    globalRefreshController.addListener(_onRefreshRequested);
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      UpdateService.checkUpdate(context);
+
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        UpdateService.checkUpdate(context);
+      }
     });
   }
 
   @override
   void dispose() {
+    globalRefreshController.removeListener(_onRefreshRequested);
     _scrollController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  void _onRefreshRequested() {
+    _carregarLote(refresh: true);
   }
 
   void _onScroll() {
@@ -368,17 +349,44 @@ class MainScreenState extends State<MainScreen> {
                               return MangaCardWidget(
                                 key: ValueKey(manga['id']),
                                 manga: manga,
-                                onDelete: () {
+                                onDelete: () async {
+                                  final mangaRemovido = _mangas[index];
                                   setState(() {
                                     _mangas.removeAt(index);
                                   });
-                                  DbHelper().deleteManga(manga['id']);
+
+                                  try {
+                                    await DbHelper().deleteManga(manga['id']);
+                                  } catch (error, stackTrace) {
+                                    setState(() {
+                                      _mangas.insert(index, mangaRemovido);
+                                    });
+
+                                    if (context.mounted) {
+                                      ErrorHandler.showFatalError(
+                                        context,
+                                        error,
+                                        stackTrace,
+                                      );
+                                    }
+                                  }
                                 },
                                 onUpdate: () =>
                                     _atualizarMangaEspecifico(manga['id']),
                               );
                             },
                             onReorder: (oldIndex, newIndex) {
+                              if (_searchQuery.isNotEmpty || _hasMore) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Não é possível alterar a ordem durante uma busca ou antes de carregar todos os mangás.',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+
                               setState(() {
                                 final item = _mangas.removeAt(oldIndex);
                                 _mangas.insert(newIndex, item);
@@ -404,7 +412,9 @@ class MainScreenState extends State<MainScreen> {
                             color: theme.cardColor,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: theme.colorScheme.onSurface.withAlpha(20),
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.08,
+                              ),
                             ),
                           ),
                           child: AddMangaFormWidget(

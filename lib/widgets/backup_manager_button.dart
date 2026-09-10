@@ -7,7 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:archive/archive_io.dart';
 import 'package:sqflite/sqflite.dart';
 import '../database/db_helper.dart';
-import 'package:manga_manager/main.dart';
+import '../controllers/refresh_controller.dart';
 
 class BackupManagerButton extends StatefulWidget {
   final VoidCallback onBackupRestored;
@@ -20,7 +20,7 @@ class BackupManagerButton extends StatefulWidget {
   Widget build(BuildContext context) {
     return ElevatedButton(
       onPressed: () {
-        MainController.carregarLote();
+        globalRefreshController.refresh();
       },
       child: const Text("Restaurar Backup"),
     );
@@ -58,9 +58,6 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
     return {'db': dbPath, 'capas': capasDirPath};
   }
 
-  // ==========================================
-  // LÓGICA DE BACKUP
-  // ==========================================
   Future<void> _fazerBackup() async {
     Navigator.pop(context);
     setState(() => _isLoading = true);
@@ -135,9 +132,6 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
     }
   }
 
-  // ==========================================
-  // LÓGICA DE RESTAURAÇÃO (SUBSTITUIR TUDO)
-  // ==========================================
   Future<void> _restaurarSubstituindo() async {
     Navigator.pop(context);
 
@@ -206,7 +200,7 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
 
         if (mounted) {
           widget.onBackupRestored();
-          MainController.carregarLote();
+          globalRefreshController.refresh();
         }
       } catch (e) {
         _mostrarSnack('Erro na restauração: $e', Colors.red);
@@ -216,9 +210,6 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
     }
   }
 
-  // ==========================================
-  // LÓGICA DE RESTAURAÇÃO (MESCLAR)
-  // ==========================================
   Future<void> _restaurarMesclando() async {
     Navigator.pop(context);
 
@@ -313,7 +304,7 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
 
         if (mounted) {
           widget.onBackupRestored();
-          MainController.carregarLote();
+          globalRefreshController.refresh();
         }
       } catch (e) {
         _mostrarSnack('Erro ao mesclar: $e', Colors.red);

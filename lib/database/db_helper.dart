@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-// REMOVIDO: import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io' as io;
 
@@ -26,19 +25,16 @@ class DbHelper {
 
   Future<Database> get database async {
     if (_database != null && _database!.isOpen) return _database!;
-    _database =
-        await _initDatabase(); // <-- Corrigido de _initDb para _initDatabase
+    _database = await _initDatabase();
     return _database!;
   }
 
-  // ADICIONE ESTE MÉTODO PARA FORÇAR O FECHAMENTO E LIMPEZA
   Future<void> closeDatabase() async {
     if (_database != null) {
       if (_database!.isOpen) {
         await _database!.close();
       }
-      _database =
-          null; // IMPORTANTE: Zera a referência para forçar a reabertura do novo arquivo
+      _database = null;
     }
   }
 
@@ -52,9 +48,6 @@ class DbHelper {
       if (defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.linux ||
           defaultTargetPlatform == TargetPlatform.macOS) {
-        // REMOVIDO: sqfliteFfiInit() e databaseFactory = databaseFactoryFfi
-        // Agora isso é feito na main.dart
-
         final directory = await getApplicationSupportDirectory();
 
         if (!await directory.exists()) {
@@ -68,7 +61,6 @@ class DbHelper {
       }
     }
 
-    // O openDatabase agora vai usar o factory global que configuramos na main
     return await openDatabase(
       path,
       version: 2,
@@ -138,6 +130,28 @@ class DbHelper {
       'chave': 'tema',
       'valor': tema,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> setConfig(String chave, String valor) async {
+    final db = await database;
+    await db.insert('configuracoes', {
+      'chave': chave,
+      'valor': valor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<String?> getConfig(String chave) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'configuracoes',
+      where: 'chave = ?',
+      whereArgs: [chave],
+    );
+
+    if (maps.isNotEmpty) {
+      return maps.first['valor'] as String;
+    }
+    return null;
   }
 
   Future<int> insertManga(Map<String, dynamic> row) async {

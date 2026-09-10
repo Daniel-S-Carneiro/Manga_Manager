@@ -1,11 +1,11 @@
 import 'dart:io';
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import '../database/db_helper.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'dart:io' as io;
 
 class EditMangaFormWidget extends StatefulWidget {
   final Map<String, dynamic> manga;

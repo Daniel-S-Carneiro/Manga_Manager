@@ -5,11 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../database/db_helper.dart';
-
-// Importe os widgets autônomos
 import 'mobile_simulator_button.dart';
 import 'version_updater_button.dart';
-import 'backup_manager_button.dart'; // <-- NOVO IMPORT
+import 'backup_manager_button.dart';
 
 class MeuDbViewer extends StatefulWidget {
   const MeuDbViewer({super.key});
