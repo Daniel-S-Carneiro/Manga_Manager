@@ -203,7 +203,6 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
       ),
       body: Column(
         children: [
-          // A BARRA COM OS COMPONENTES AGORA NÃO DEPENDE SÓ DO WINDOWS PARA O BACKUP APARECER
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -218,11 +217,7 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
               children: [
                 if (isWindowsApp) const MobileSimulatorButton(),
                 const VersionUpdaterButton(),
-                // NOVO COMPONENTE AQUI
-                BackupManagerButton(
-                  onBackupRestored:
-                      _recarregarLista, // Chama a função para dar refresh na UI
-                ),
+                BackupManagerButton(onBackupRestored: _recarregarLista),
               ],
             ),
           ),

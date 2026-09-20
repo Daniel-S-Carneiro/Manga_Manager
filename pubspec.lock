@@ -174,6 +174,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_archive:
+    dependency: "direct main"
+    description:
+      name: flutter_archive
+      sha256: e433389fde0bdfc20af40784fdb6d91753794b40cf708a43f95244fcd5d6c298
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.0.4"
   flutter_image_compress:
     dependency: "direct main"
     description:
