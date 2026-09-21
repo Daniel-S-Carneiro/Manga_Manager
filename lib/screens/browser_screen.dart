@@ -1,11 +1,7 @@
-import 'dart:io' as io;
-import 'dart:collection';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:window_manager/window_manager.dart';
 import '../database/db_helper.dart';
 
 class BrowserScreen extends StatefulWidget {
@@ -24,53 +20,158 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen> {
   InAppWebViewController? webViewController;
-  WebViewEnvironment? _webViewEnvironment;
-  bool _hasError = false;
-  String _errorMessage = '';
-  bool _isLoading = true;
 
-  final FocusNode _focusNode = FocusNode();
+  // bool _isWebViewReady = false;
+  String? _currentUrl;
 
-  // Posição e orientação do Widget Flutuante
-  double _posTop = 20.0;
-  double _posLeft = 20.0;
-  bool _isVertical = false;
+  final ValueNotifier<bool> _isLoading = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _hasError = ValueNotifier<bool>(false);
+  final ValueNotifier<String> _errorMessage = ValueNotifier<String>('');
+
+  final ValueNotifier<double> _posTop = ValueNotifier<double>(20.0);
+  final ValueNotifier<double> _posLeft = ValueNotifier<double>(20.0);
+  final ValueNotifier<bool> _isVertical = ValueNotifier<bool>(false);
+
+  // Lista unificada de padrões de anúncios
+  final List<String> _adPatterns = const [
+    'dearthsongman.shop',
+    'officeklafter.com',
+    'loafedspences.com',
+    'fauldspelikeyellows.qpon',
+    'bhatrelime',
+    'tcliktrc',
+    'acquirepopdownloadnow',
+    'doubleclick.net',
+    'googlesyndication.com',
+    'pagead2.googlesyndication',
+  ];
+
+  // Helper para verificar se uma URL contém padrões de anúncio
+  bool _isAd(String url) {
+    final lowerUrl = url.toLowerCase();
+    for (final pattern in _adPatterns) {
+      if (lowerUrl.contains(pattern)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Script para interceptar requisições fetch
+  final String _interceptorScript = '''
+    (function() {
+      const originalFetch = window.fetch;
+      window.fetch = async function(...args) {
+        console.log('[MangaManager Interceptor] Fetch disparado para:', args[0]);
+        const response = await originalFetch.apply(this, args);
+        return response;
+      };
+    })();
+  ''';
+
+  // Adicione no initialUserScripts ou injete no onWebViewCreated
+  final String _adBlockScript = '''
+(function() {
+  // Bloqueia popups
+  window.open = function() { return null; };
+
+  // Impede cliques em elementos de anúncio
+  document.addEventListener('click', function(e) {
+    const target = e.target;
+    if (!target) return;
+
+    const id = (target.id || '').toLowerCase();
+    const className = (target.className || '').toString().toLowerCase();
+    const tag = target.tagName;
+
+    if (
+      tag === 'IFRAME' ||
+      id.includes('ad') ||
+      id.includes('ads') ||
+      className.includes('ad') ||
+      className.includes('ads') ||
+      className.includes('popup') ||
+      className.includes('banner')
+    ) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+})();
+''';
+
+  // Script para esconder "STEALTH FORTE" que é WebView / automação
+  final String _stealthScript = '''
+(function() {
+  // Helper para tentar redefinir sem quebrar
+  function safeDefine(obj, prop, value) {
+    try {
+      const desc = Object.getOwnPropertyDescriptor(obj, prop) || 
+                   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(obj), prop);
+      
+      if (!desc || desc.configurable) {
+        Object.defineProperty(obj, prop, {
+          get: () => value,
+          configurable: true
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 1. webdriver
+  safeDefine(Navigator.prototype, 'webdriver', undefined);
+
+  // 2. Chrome básico
+  if (!window.chrome) {
+    window.chrome = {
+      runtime: {},
+      app: { isInstalled: false }
+    };
+  }
+
+  // 3. Languages
+  safeDefine(navigator, 'languages', ['pt-BR', 'pt', 'en-US', 'en']);
+
+  // 4. Platform (mobile realista)
+  safeDefine(navigator, 'platform', 'Linux armv8l');
+
+  // 5. Hardware
+  safeDefine(navigator, 'hardwareConcurrency', 8);
+  safeDefine(navigator, 'deviceMemory', 8);
+
+  // 6. Remove sinais óbvios de Flutter
+  try {
+    delete window.Flutter;
+    delete window.Android;
+  } catch (e) {}
+
+  // Não mexe mais em plugins (era o que gerava o erro)
+
+  console.log('[MangaManager] Stealth suave aplicado');
+})();
+''';
 
   @override
   void initState() {
     super.initState();
-    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
-
-    if (_isDesktop) {
-      _initWebViewEnvironment();
-    }
-
-    // CARREGA AS CONFIGURAÇÕES SALVAS DA BARRA
     _carregarConfiguracoesBarra();
+  }
 
-    if (_isDesktop) {
-      _initWebViewEnvironment();
-    }
+  Future<void> _abrirComCustomTabs(String url) async {
+    final ChromeSafariBrowser browser = ChromeSafariBrowser();
 
-    if (!kIsWeb && io.Platform.isLinux) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Aviso para usuários Linux'),
-            content: const Text(
-              'Para que o leitor de mangás funcione corretamente no Linux, certifique-se de que a biblioteca WebKitGTK (libwebkit2gtk) está instalada no seu sistema operacional.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Entendi'),
-              ),
-            ],
-          ),
-        );
-      });
-    } // <-- Correção do erro de sintaxe aqui
+    await browser.open(
+      url: WebUri(url),
+      settings: ChromeSafariBrowserSettings(
+        shareState: CustomTabsShareState.SHARE_STATE_OFF,
+        isSingleInstance: false,
+        isTrustedWebActivity: false, // importante
+        keepAliveEnabled: true,
+        // Cores (opcional)
+        toolbarBackgroundColor: Colors.black,
+        // secondaryToolbarColor: Colors.black,
+      ),
+    );
   }
 
   Future<void> _carregarConfiguracoesBarra() async {
@@ -79,118 +180,56 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final yStr = await db.getConfig('barra_y');
     final isVertStr = await db.getConfig('barra_vertical');
 
-    if (mounted) {
-      setState(() {
-        if (xStr != null) _posLeft = double.tryParse(xStr) ?? 20.0;
-        if (yStr != null) _posTop = double.tryParse(yStr) ?? 20.0;
-        if (isVertStr != null) _isVertical = isVertStr == 'true';
-      });
-    }
+    if (xStr != null) _posLeft.value = double.tryParse(xStr) ?? 20.0;
+    if (yStr != null) _posTop.value = double.tryParse(yStr) ?? 20.0;
+    if (isVertStr != null) _isVertical.value = isVertStr == 'true';
   }
 
   Future<void> _salvarPosicaoBarra() async {
     final db = DbHelper();
-    await db.setConfig('barra_x', _posLeft.toString());
-    await db.setConfig('barra_y', _posTop.toString());
+    await db.setConfig('barra_x', _posLeft.value.toString());
+    await db.setConfig('barra_y', _posTop.value.toString());
   }
 
   Future<void> _salvarOrientacaoBarra() async {
     final db = DbHelper();
-    await db.setConfig('barra_vertical', _isVertical.toString());
-  }
-
-  /// Manipulador global de teclado para o atalho F11
-  bool _handleGlobalKey(KeyEvent event) {
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f11) {
-      _toggleFullScreen();
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> _initWebViewEnvironment() async {
-    try {
-      final appSupportDir = await getApplicationSupportDirectory();
-      final env = await WebViewEnvironment.create(
-        settings: WebViewEnvironmentSettings(
-          userDataFolder: '${appSupportDir.path}/webViewData',
-        ),
-      );
-      if (mounted) {
-        setState(() {
-          _webViewEnvironment = env;
-        });
-      }
-    } catch (_) {}
-  }
-
-  bool get _isDesktop {
-    if (kIsWeb) return false;
-    return io.Platform.isWindows || io.Platform.isLinux || io.Platform.isMacOS;
+    await db.setConfig('barra_vertical', _isVertical.value.toString());
   }
 
   @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
-    if (_isDesktop) {
-      windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      windowManager.setFullScreen(false);
-      windowManager.maximize();
-    }
-    _focusNode.dispose();
+    _isLoading.dispose();
+    _hasError.dispose();
+    _errorMessage.dispose();
+    _posTop.dispose();
+    _posLeft.dispose();
+    _isVertical.dispose();
     super.dispose();
   }
 
-  Future<void> _toggleFullScreen() async {
-    if (!_isDesktop) return;
-
-    try {
-      bool isFullScreen = await windowManager.isFullScreen();
-      bool novoEstado = !isFullScreen;
-
-      if (novoEstado) {
-        await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-      } else {
-        await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      }
-
-      await windowManager.setFullScreen(novoEstado);
-
-      if (!novoEstado) {
-        await windowManager.maximize();
-      }
-    } catch (_) {}
+  Future<void> _voltarComUrl() async {
+    if (mounted) {
+      Navigator.pop(context, _currentUrl);
+    }
   }
 
-  Future<void> _voltarComUrl() async {
-    if (_isDesktop) {
-      try {
-        bool isFullScreen = await windowManager.isFullScreen();
-        if (isFullScreen) {
-          await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-          await windowManager.setFullScreen(false);
-          await windowManager.maximize();
-        }
-      } catch (_) {}
+  // ========== USER AGENT REALISTA ==========
+  String _obterUserAgent() {
+    if (kIsWeb) {
+      return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     }
 
-    String? currentUrl;
-    try {
-      final uri = await webViewController?.getUrl();
-      currentUrl = uri?.toString();
-    } catch (_) {}
-
-    if (mounted) {
-      Navigator.pop(context, currentUrl);
+    if (Platform.isAndroid || Platform.isIOS) {
+      // Mobile: UA de Android real (para passar na detecção do site)
+      return 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
     }
+
+    // Windows / Linux / macOS → UA de desktop
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isDesktop && _webViewEnvironment == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     final screenSize = MediaQuery.of(context).size;
 
     return PopScope(
@@ -200,308 +239,329 @@ class _BrowserScreenState extends State<BrowserScreen> {
         await _voltarComUrl();
       },
       child: Scaffold(
-        body: _hasError
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: Colors.orange,
-                        size: 60,
+        body: Stack(
+          children: [
+            ValueListenableBuilder<bool>(
+              valueListenable: _hasError,
+              builder: (context, hasError, child) {
+                if (hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 50,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Falha ao carregar WebView:\n${_errorMessage.value}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              _hasError.value = false;
+                              _isLoading.value = true;
+                              webViewController?.reload();
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Tentar Novamente'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'O site bloqueou ou recusou a conexão',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _errorMessage,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: _voltarComUrl,
-                        icon: const Icon(Icons.arrow_back),
-                        label: const Text('Voltar aos Mangás'),
-                      ),
-                    ],
+                    ),
+                  );
+                }
+
+                return InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
+                  initialSettings: InAppWebViewSettings(
+                    databaseEnabled: true,
+                    sharedCookiesEnabled: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                    allowsInlineMediaPlayback: true,
+                    javaScriptCanOpenWindowsAutomatically: false,
+                    supportMultipleWindows: false,
+                    mixedContentMode:
+                        MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+                    useWideViewPort: true,
+                    loadWithOverviewMode: true,
+                    preferredContentMode: (Platform.isAndroid || Platform.isIOS)
+                        ? UserPreferredContentMode.MOBILE
+                        : UserPreferredContentMode.DESKTOP,
+                    userAgent: _obterUserAgent(),
+                    isInspectable: true,
+
+                    // Otimizações leves
+                    cacheEnabled: true,
+                    clearCache: false, // não limpa toda vez
+                    cacheMode: CacheMode.LOAD_DEFAULT,
+
+                    // Reduz um pouco o trabalho de render
+                    hardwareAcceleration: true,
+                    useHybridComposition: true,
+
+                    // Evita recarregamentos desnecessários
+                    allowsBackForwardNavigationGestures: true,
+
+                    // Performance
+                    verticalScrollBarEnabled: false, // opcional (estética)
+                    horizontalScrollBarEnabled: false,
+
+                    // Mantém JavaScript e cookies (importante pro site)
+                    javaScriptEnabled: true,
+                    domStorageEnabled: true,
+                    thirdPartyCookiesEnabled: true,
+                    useShouldOverrideUrlLoading: true,
+                    useShouldInterceptRequest: true,
                   ),
-                ),
-              )
-            : Stack(
-                children: [
-                  InAppWebView(
-                    webViewEnvironment: _webViewEnvironment,
-                    initialUrlRequest: URLRequest(
-                      url: WebUri(widget.initialUrl),
-                    ),
-                    initialSettings: InAppWebViewSettings(
-                      javaScriptEnabled: true,
-                      useShouldOverrideUrlLoading: true,
-                      mediaPlaybackRequiresUserGesture: false,
-                      mixedContentMode:
-                          MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-                      supportMultipleWindows: true,
-                    ),
-                    initialUserScripts: UnmodifiableListView<UserScript>([
-                      UserScript(
-                        source: """
-                          window.open = function() { return null; };
+                  onWebViewCreated: (controller) async {
+                    webViewController = controller;
 
-                          // Bloqueio de cliques em popups/iframes de anúncios
-                          document.addEventListener('click', function(event) {
-                            let target = event.target;
-                            if (target && (target.tagName === 'IFRAME' || target.getAttribute('id')?.includes('ads') || target.getAttribute('class')?.includes('popup'))) {
-                              event.stopPropagation();
-                            }
-                          }, true);
+                    // 1º - Stealth
+                    // Só aplica stealth forte no mobile
+                    if (Platform.isAndroid || Platform.isIOS) {
+                      await controller.evaluateJavascript(
+                        source: _stealthScript,
+                      );
+                    }
 
-                          // Intercepta a roda do mouse para customizar a velocidade
-                          window.addEventListener('wheel', function(e) {
-                            // Impede o scroll padrão e o efeito de "bounce" (overscroll)
-                            e.preventDefault(); 
-                            
-                            // MULTIPLICADOR DE VELOCIDADE: 
-                            const speedMultiplier = 0.8;
-                            
-                            window.scrollBy({
-                              top: e.deltaY * speedMultiplier,
-                              left: 0,
-                              behavior: 'auto' // 'auto' é instantâneo, 'smooth' faz deslizar
-                            });
-                          }, { passive: false }); // passive: false é obrigatório para o preventDefault funcionar
+                    // 2º - AdBlock
+                    await controller.evaluateJavascript(source: _adBlockScript);
 
-                          // F11 via JS
-                          window.addEventListener('keydown', function(e) {
-                            if (e.key === 'F11') {
-                              e.preventDefault();
-                              window.flutter_inappwebview.callHandler('toggleFullScreen');
-                            }
-                          });
-                        """,
-                        injectionTime:
-                            UserScriptInjectionTime.AT_DOCUMENT_START,
-                      ),
-                    ]),
-                    onWebViewCreated: (controller) {
-                      webViewController = controller;
-                      controller.addJavaScriptHandler(
-                        handlerName: 'toggleFullScreen',
-                        callback: (args) {
-                          _toggleFullScreen();
-                        },
+                    // 3º - Interceptor
+                    await controller.evaluateJavascript(
+                      source: _interceptorScript,
+                    );
+                  },
+
+                  onLoadStart: (controller, url) async {
+                    _isLoading.value = true;
+                    _hasError.value = false;
+
+                    if (url != null) {
+                      _currentUrl = url.toString();
+
+                      // Injeta de novo (importante)
+                      try {
+                        await controller.evaluateJavascript(
+                          source: _stealthScript,
+                        );
+                        await controller.evaluateJavascript(
+                          source: _interceptorScript,
+                        );
+                      } catch (e) {
+                        debugPrint(
+                          '[MangaManager] Erro ao reinjetar scripts: $e',
+                        );
+                      }
+                    }
+                  },
+
+                  onLoadStop: (controller, url) async {
+                    _isLoading.value = false;
+
+                    if (url == null) return;
+                    _currentUrl = url.toString();
+
+                    // Injeta stealth + interceptor
+                    await controller.evaluateJavascript(source: _stealthScript);
+                    await controller.evaluateJavascript(
+                      source: _interceptorScript,
+                    );
+
+                    // Espera um pouco e verifica se o React montou
+                    await Future.delayed(const Duration(seconds: 4));
+
+                    final result = await controller.evaluateJavascript(
+                      source: '''
+                        (function() {
+                          const root = document.getElementById('root');
+                          if (!root) return false;
+                          // Se tiver mais de 100 caracteres, considera que renderizou
+                          return root.innerHTML.length > 100;
+                        })();
+                      ''',
+                    );
+
+                    final renderizou = result == true;
+
+                    if (!renderizou && url.toString().contains('/r/')) {
+                      if (Platform.isAndroid || Platform.isIOS) {
+                        // abre Custom Tabs
+                        await _abrirComCustomTabs(url.toString());
+                      } else {
+                        // no desktop só mostra erro ou tenta reload
+                        debugPrint(
+                          '[MangaManager] Falhou no desktop, sem Custom Tabs',
+                        );
+                      }
+                    }
+                  },
+
+                  shouldOverrideUrlLoading:
+                      (controller, navigationAction) async {
+                        final url =
+                            navigationAction.request.url?.toString() ?? '';
+
+                        if (_isAd(url)) {
+                          debugPrint('[MangaManager] Bloqueado (Ad): $url');
+                          return NavigationActionPolicy.CANCEL;
+                        }
+
+                        if (!url.contains('nexustoons.com') &&
+                            !url.contains('nx-toons.xyz')) {
+                          return NavigationActionPolicy.CANCEL;
+                        }
+                        return NavigationActionPolicy.ALLOW;
+                      },
+
+                  shouldInterceptRequest: (controller, request) async {
+                    final url = request.url.toString();
+
+                    if (_isAd(url)) {
+                      debugPrint(
+                        '[MangaManager] Interceptado (bloqueado): $url',
+                      );
+                      try {
+                        return WebResourceResponse(
+                          contentType: 'text/plain',
+                          data: Uint8List.fromList([]),
+                          statusCode: 200,
+                        );
+                      } catch (e) {
+                        debugPrint(
+                          '[MangaManager] Erro ao criar resposta vazia: $e',
+                        );
+                        return null;
+                      }
+                    }
+
+                    return null;
+                  },
+
+                  onCreateWindow: (controller, createWindowRequest) async {
+                    return false; // impede popups / novas janelas
+                  },
+
+                  onReceivedError: (controller, request, error) {
+                    final urlStr = request.url.toString();
+                    if (urlStr == 'about:blank' ||
+                        (request.isForMainFrame ?? false) == false) {
+                      return;
+                    }
+                    debugPrint(
+                      '[MangaManager] Erro de Recurso [${error.type}]: ${error.description}',
+                    );
+                    _isLoading.value = false;
+                    _hasError.value = true;
+                    _errorMessage.value =
+                        'Tipo: ${error.type}\nMensagem: ${error.description}';
+                  },
+                );
+              },
+            ),
+
+            ValueListenableBuilder<bool>(
+              valueListenable: _isLoading,
+              builder: (context, isLoading, child) {
+                // if (isLoading && _isWebViewReady && !_hasError.value) {
+                //    return const Center(child: CircularProgressIndicator());
+                // }
+                if (isLoading && !_hasError.value) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+
+            ListenableBuilder(
+              listenable: Listenable.merge([_posTop, _posLeft, _isVertical]),
+              builder: (context, child) {
+                return Positioned(
+                  top: _posTop.value.clamp(0.0, screenSize.height - 60.0),
+                  left: _posLeft.value.clamp(0.0, screenSize.width - 60.0),
+                  child: GestureDetector(
+                    onPanUpdate: (details) {
+                      _posLeft.value = (_posLeft.value + details.delta.dx)
+                          .clamp(0.0, screenSize.width - 60.0);
+                      _posTop.value = (_posTop.value + details.delta.dy).clamp(
+                        0.0,
+                        screenSize.height - 60.0,
                       );
                     },
-                    onConsoleMessage: (controller, consoleMessage) {},
-                    onLoadStart: (controller, url) {
-                      setState(() {
-                        _isLoading = true;
-                        _hasError = false;
-                      });
-                    },
-                    onLoadStop: (controller, url) async {
-                      if (mounted) {
-                        setState(() => _isLoading = false);
-                      }
-                    },
-                    onReceivedError: (controller, request, error) {
-                      if (request.url.toString() == 'about:blank') return;
-                      if (request.isForMainFrame != true) return;
-
-                      if (mounted) {
-                        setState(() {
-                          _isLoading = false;
-                          _hasError = true;
-                          _errorMessage = 'Descrição: ${error.description}';
-                        });
-                      }
-                    },
-                    onCreateWindow: (controller, windowRequest) async => false,
-                    shouldOverrideUrlLoading:
-                        (controller, navigationAction) async {
-                          final uri = navigationAction.request.url;
-                          if (uri == null) {
-                            return NavigationActionPolicy.CANCEL;
-                          }
-                          final urlStr = uri.toString();
-                          if (urlStr == 'about:blank') {
-                            return NavigationActionPolicy.ALLOW;
-                          }
-
-                          final initialHost = Uri.parse(
-                            widget.initialUrl,
-                          ).host.toLowerCase();
-                          final currentHost = uri.host.toLowerCase();
-
-                          if (currentHost.contains(initialHost) ||
-                              initialHost.contains(currentHost)) {
-                            return NavigationActionPolicy.ALLOW;
-                          }
-
-                          if (urlStr.contains('bhatrelime') ||
-                              urlStr.contains('tcliktrc') ||
-                              urlStr.contains('acquirepopdownloadnow')) {
-                            return NavigationActionPolicy.CANCEL;
-                          }
-                          return NavigationActionPolicy.ALLOW;
-                        },
-                  ),
-
-                  if (_isLoading && !_hasError)
-                    const Center(child: CircularProgressIndicator()),
-
-                  Positioned(
-                    top: _posTop.clamp(
-                      0.0,
-                      screenSize.height > 60
-                          ? screenSize.height - 60.0
-                          : double.infinity,
-                    ),
-                    left: _posLeft.clamp(
-                      0.0,
-                      screenSize.width > 60
-                          ? screenSize.width - 60.0
-                          : double.infinity,
-                    ),
-                    child: GestureDetector(
-                      onPanUpdate: (details) {
-                        setState(() {
-                          _posLeft = (_posLeft + details.delta.dx).clamp(
-                            0.0,
-                            screenSize.width - 60.0,
-                          );
-                          _posTop = (_posTop + details.delta.dy).clamp(
-                            0.0,
-                            screenSize.height - 60.0,
-                          );
-                        });
-                      },
-                      onPanEnd: (details) {
-                        _salvarPosicaoBarra();
-                      },
-                      child: Material(
-                        color: Colors.transparent,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: Colors.white24, width: 1),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.5),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
+                    onPanEnd: (details) => _salvarPosicaoBarra(),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: Colors.white24, width: 1),
+                        ),
+                        child: Flex(
+                          direction: _isVertical.value
+                              ? Axis.vertical
+                              : Axis.horizontal,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.arrow_back,
+                                color: Colors.white,
+                                size: 20,
                               ),
-                            ],
-                          ),
-                          child: Flex(
-                            direction: _isVertical
-                                ? Axis.vertical
-                                : Axis.horizontal,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.all(4.0),
-                                child: Icon(
-                                  _isVertical
-                                      ? Icons.drag_handle
-                                      : Icons.drag_indicator,
-                                  color: Colors.white54,
-                                  size: 18,
-                                ),
+                              tooltip: 'Voltar',
+                              onPressed: _voltarComUrl,
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.refresh,
+                                color: Colors.white,
+                                size: 20,
                               ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.arrow_back,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                                tooltip: 'Voltar',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(8),
-                                onPressed: _voltarComUrl,
-                              ),
-                              SizedBox(
-                                width: _isVertical ? 0 : 4,
-                                height: _isVertical ? 4 : 0,
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.refresh,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                                tooltip: 'Recarregar',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(8),
-                                onPressed: () {
-                                  setState(() {
-                                    _hasError = false;
-                                    _isLoading = true;
-                                  });
+                              tooltip: 'Recarregar',
+                              onPressed: () {
+                                if (_hasError.value) {
+                                  _hasError.value = false;
+                                  _isLoading.value = true;
                                   webViewController?.reload();
-                                },
+                                } else {
+                                  _isLoading.value = true;
+                                  webViewController?.reload();
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                _isVertical.value
+                                    ? Icons.view_column_outlined
+                                    : Icons.view_stream_outlined,
+                                color: Colors.white,
+                                size: 20,
                               ),
-                              SizedBox(
-                                width: _isVertical ? 0 : 4,
-                                height: _isVertical ? 4 : 0,
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.fullscreen,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                                tooltip: 'Tela Cheia (F11)',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(8),
-                                onPressed: _toggleFullScreen,
-                              ),
-                              SizedBox(
-                                width: _isVertical ? 0 : 4,
-                                height: _isVertical ? 4 : 0,
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  _isVertical
-                                      ? Icons.view_column_outlined
-                                      : Icons.view_stream_outlined,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                                tooltip: _isVertical
-                                    ? 'Girar para Horizontal'
-                                    : 'Girar para Vertical',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(8),
-                                onPressed: () {
-                                  setState(() {
-                                    _isVertical = !_isVertical;
-                                  });
-                                  _salvarOrientacaoBarra();
-                                },
-                              ),
-                            ],
-                          ),
+                              tooltip: 'Alternar Orientação',
+                              onPressed: () {
+                                _isVertical.value = !_isVertical.value;
+                                _salvarOrientacaoBarra();
+                              },
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

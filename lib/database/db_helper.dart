@@ -10,6 +10,18 @@ class DbHelper {
   DbHelper._internal();
 
   static Database? _database;
+  bool _isLocked = false;
+
+  void _checkLock() {
+    if (_isLocked) {
+      throw Exception(
+        'Banco de dados em manutenção (Backup/Restore em andamento).',
+      );
+    }
+  }
+
+  void lockDatabase() => _isLocked = true;
+  void unlockDatabase() => _isLocked = false;
 
   Future<io.Directory> getCapasDirectory() async {
     final appDir = await getApplicationDocumentsDirectory();
@@ -23,50 +35,98 @@ class DbHelper {
     return capasDir;
   }
 
+  Future<String> getDatabasePathString() async {
+    String dbName = kDebugMode ? 'manga_manager_debug.db' : 'manga_manager.db';
+    if (kIsWeb) return dbName;
+
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      final directory = await getApplicationSupportDirectory();
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+      return p.join(directory.path, dbName);
+    } else {
+      final dbPath = await getDatabasesPath();
+      return p.join(dbPath, dbName);
+    }
+  }
+
   Future<Database> get database async {
+    _checkLock();
     if (_database != null && _database!.isOpen) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  Future<void> closeDatabase() async {
-    if (_database != null) {
-      if (_database!.isOpen) {
-        await _database!.close();
-      }
-      _database = null;
-    }
-  }
-
   Future<Database> _initDatabase() async {
-    String path;
-    String dbName = kDebugMode ? 'manga_manager_debug.db' : 'manga_manager.db';
-
-    if (kIsWeb) {
-      path = dbName;
-    } else {
-      if (defaultTargetPlatform == TargetPlatform.windows ||
-          defaultTargetPlatform == TargetPlatform.linux ||
-          defaultTargetPlatform == TargetPlatform.macOS) {
-        final directory = await getApplicationSupportDirectory();
-
-        if (!await directory.exists()) {
-          await directory.create(recursive: true);
-        }
-
-        path = p.join(directory.path, dbName);
-      } else {
-        final dbPath = await getDatabasesPath();
-        path = p.join(dbPath, dbName);
-      }
-    }
-
+    final path = await getDatabasePathString();
     return await openDatabase(
       path,
       version: 2,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> closeDatabase() async {
+    if (_database != null) {
+      if (_database!.isOpen) await _database!.close();
+      _database = null;
+    }
+  }
+
+  Future<void> reopenDatabase() async {
+    await closeDatabase();
+    _database = await _initDatabase();
+  }
+
+  Future<int> mergeFromBackup(
+    String tempDbPath,
+    io.Directory pastaTemporaria,
+  ) async {
+    final tempDb = await openDatabase(tempDbPath);
+    final List<Map<String, dynamic>> tempMangas = await tempDb.query('mangas');
+    await tempDb.close();
+
+    final currentDb = await database;
+    int inseridos = 0;
+    final realCapasDir = await getCapasDirectory();
+
+    Map<String, io.File> mapaCapas = {};
+    for (var entidade in pastaTemporaria.listSync(recursive: true)) {
+      if (entidade is io.File) {
+        mapaCapas[p.basename(entidade.path).toLowerCase()] = entidade;
+      }
+    }
+
+    for (var manga in tempMangas) {
+      List<Map> existe = await currentDb.query(
+        'mangas',
+        where: 'nome_pt = ?',
+        whereArgs: [manga['nome_pt']],
+      );
+
+      if (existe.isEmpty) {
+        var novoManga = Map<String, dynamic>.from(manga)..remove('id');
+        await currentDb.insert('mangas', novoManga);
+        inseridos++;
+
+        final capaPath = manga['capa_path'];
+        if (capaPath != null && capaPath.toString().isNotEmpty) {
+          final nomeArquivoCapa = p.basename(capaPath.toString());
+          io.File? arquivoCapaReal = mapaCapas[nomeArquivoCapa.toLowerCase()];
+
+          if (arquivoCapaReal != null && arquivoCapaReal.existsSync()) {
+            await arquivoCapaReal.copy(
+              p.join(realCapasDir.path, nomeArquivoCapa),
+            );
+          }
+        }
+      }
+    }
+    return inseridos;
   }
 
   Future<void> _onCreate(Database db, int version) async {
