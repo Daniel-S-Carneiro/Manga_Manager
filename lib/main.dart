@@ -15,6 +15,7 @@ import 'utils/error_handler.dart';
 import 'utils/theme_notifier.dart';
 import 'services/update_service.dart';
 import 'controllers/refresh_controller.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 
 Future<void> setupDatabaseFactory() async {
   try {
@@ -146,11 +147,42 @@ class MainScreenState extends State<MainScreen> {
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _logDisplayMetrics();
+    });
+
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         UpdateService.checkUpdate(context);
       }
     });
+  }
+
+  Future<void> _logDisplayMetrics() async {
+    if (kIsWeb) return;
+
+    // 1. Capturamos os dados do MediaQuery ANTES de qualquer await
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final logicalSize = MediaQuery.sizeOf(context);
+
+    try {
+      // 2. Operações assíncronas vêm depois
+      final windowSize = await windowManager.getSize();
+      final display = await screenRetriever.getPrimaryDisplay();
+
+      debugPrint('\n========================================');
+      debugPrint(
+        '🖥️  MÉTRICAS DE DISPLAY E JANELA (${Platform.operatingSystem})',
+      );
+      debugPrint('========================================');
+      debugPrint('Resolução real do Monitor (Display): ${display.size}');
+      debugPrint('Tamanho físico da Janela (WindowManager): $windowSize');
+      debugPrint('Tamanho lógico da Tela (MediaQuery): $logicalSize');
+      debugPrint('Proporção de Escala (Device Pixel Ratio): $pixelRatio');
+      debugPrint('========================================\n');
+    } catch (e) {
+      debugPrint('Erro ao capturar métricas: $e');
+    }
   }
 
   @override
