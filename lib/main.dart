@@ -17,6 +17,9 @@ import 'services/update_service.dart';
 import 'controllers/refresh_controller.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 
+// Controle global de Zoom da interface
+final ValueNotifier<double> appZoomNotifier = ValueNotifier<double>(1.0);
+
 Future<void> setupDatabaseFactory() async {
   try {
     if (kIsWeb) {
@@ -42,6 +45,11 @@ void main() async {
       await setupDatabaseFactory();
 
       if (!kIsWeb) {
+        // Força a escala do Windows (1.25x) como padrão ao rodar no Linux
+        if (Platform.isLinux) {
+          appZoomNotifier.value = 1.25;
+        }
+
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
           await windowManager.ensureInitialized();
 
@@ -57,7 +65,7 @@ void main() async {
           );
 
           windowManager.waitUntilReadyToShow(windowOptions, () async {
-            await windowManager.maximize();
+            await windowManager.maximize(); // Mantido conforme solicitado
             await windowManager.show();
             await windowManager.focus();
           });
@@ -102,20 +110,49 @@ class MangaManagerApp extends StatelessWidget {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeController.themeNotifier,
       builder: (_, currentMode, _) {
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          themeMode: currentMode,
-          theme: ThemeController.lightTheme,
-          darkTheme: ThemeController.darkTheme,
-          home: const MainScreen(),
-          scrollBehavior: const MaterialScrollBehavior().copyWith(
-            dragDevices: {
-              PointerDeviceKind.mouse,
-              PointerDeviceKind.touch,
-              PointerDeviceKind.stylus,
-              PointerDeviceKind.trackpad,
-            },
-          ),
+        return ValueListenableBuilder<double>(
+          valueListenable: appZoomNotifier,
+          builder: (context, zoom, _) {
+            return MaterialApp(
+              debugShowCheckedModeBanner: false,
+              themeMode: currentMode,
+              theme: ThemeController.lightTheme,
+              darkTheme: ThemeController.darkTheme,
+              // O builder aplica o zoom global redimensionando a área lógica do app
+              builder: (context, child) {
+                final mediaQuery = MediaQuery.of(context);
+                final size = mediaQuery.size;
+                final scaledSize = Size(size.width / zoom, size.height / zoom);
+
+                return MediaQuery(
+                  data: mediaQuery.copyWith(
+                    size: scaledSize,
+                    devicePixelRatio: mediaQuery.devicePixelRatio * zoom,
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: scaledSize.width,
+                      height: scaledSize.height,
+                      child: Transform.scale(
+                        scale: zoom,
+                        alignment: Alignment.center,
+                        child: child!,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              home: const MainScreen(),
+              scrollBehavior: const MaterialScrollBehavior().copyWith(
+                dragDevices: {
+                  PointerDeviceKind.mouse,
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.stylus,
+                  PointerDeviceKind.trackpad,
+                },
+              ),
+            );
+          },
         );
       },
     );
@@ -161,12 +198,10 @@ class MainScreenState extends State<MainScreen> {
   Future<void> _logDisplayMetrics() async {
     if (kIsWeb) return;
 
-    // 1. Capturamos os dados do MediaQuery ANTES de qualquer await
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
     final logicalSize = MediaQuery.sizeOf(context);
 
     try {
-      // 2. Operações assíncronas vêm depois
       final windowSize = await windowManager.getSize();
       final display = await screenRetriever.getPrimaryDisplay();
 
@@ -286,7 +321,7 @@ class MainScreenState extends State<MainScreen> {
             children: [
               Column(
                 children: [
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 1),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -299,6 +334,47 @@ class MainScreenState extends State<MainScreen> {
                         ),
                       ),
                       const SizedBox(width: 16),
+                      // --- CONTROLE DE ZOOM ADICIONADO AQUI ---
+                      if (isDesktop) ...[
+                        Tooltip(
+                          message: 'Zoom da Interface',
+                          child: Icon(
+                            Icons.zoom_in,
+                            color: theme.colorScheme.primary,
+                            size: 20,
+                          ),
+                        ),
+                        ValueListenableBuilder<double>(
+                          valueListenable: appZoomNotifier,
+                          builder: (context, zoom, _) {
+                            return SizedBox(
+                              width: 120,
+                              child: Slider(
+                                value: zoom,
+                                min: 0.5,
+                                max: 2.0,
+                                divisions: 15,
+                                activeColor: theme.colorScheme.primary,
+                                label: '${(zoom * 100).toInt()}%',
+                                onChanged: (val) => appZoomNotifier.value = val,
+                              ),
+                            );
+                          },
+                        ),
+                        ValueListenableBuilder<double>(
+                          valueListenable: appZoomNotifier,
+                          builder: (context, zoom, _) {
+                            return IconButton(
+                              icon: const Icon(Icons.restore, size: 20),
+                              tooltip: 'Restaurar Zoom',
+                              onPressed: () {
+                                appZoomNotifier.value =
+                                    (!kIsWeb && Platform.isLinux) ? 1.25 : 1.0;
+                              },
+                            );
+                          },
+                        ),
+                      ],
                     ],
                   ),
                   TopBar(

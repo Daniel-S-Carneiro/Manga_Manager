@@ -11,15 +11,18 @@ class GeometricBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        CustomPaint(
-          painter: GeometricPainter(isDarkMode: isDark),
-          size: Size.infinite,
-        ),
-        child,
-      ],
+    // ClipRect corta qualquer desenho que ultrapasse os limites da tela
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CustomPaint(
+            painter: GeometricPainter(isDarkMode: isDark),
+            size: Size.infinite,
+          ),
+          child,
+        ],
+      ),
     );
   }
 }
