@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../database/db_helper.dart';
 import '../screens/browser_screen.dart';
+import '../screens/linux_browser_screen.dart';
 import 'edit_manga_form.dart';
 
 class MangaCardWidget extends StatelessWidget {
@@ -311,15 +312,30 @@ class MangaCardWidget extends StatelessWidget {
     }
 
     try {
-      final String? novoLink = await Navigator.push<String>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => BrowserScreen(
-            initialUrl: urlFinal,
-            mangaTitle: manga['nome_pt'] ?? 'Leitor',
+      String? novoLink;
+
+      // Desvia a rota dependendo do sistema operacional
+      if (Platform.isLinux) {
+        novoLink = await Navigator.push<String>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => LinuxBrowserScreen(
+              initialUrl: urlFinal,
+              mangaTitle: manga['nome_pt'] ?? 'Leitor',
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        novoLink = await Navigator.push<String>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BrowserScreen(
+              initialUrl: urlFinal,
+              mangaTitle: manga['nome_pt'] ?? 'Leitor',
+            ),
+          ),
+        );
+      }
 
       if (!context.mounted) return;
 
@@ -337,7 +353,7 @@ class MangaCardWidget extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  novoLink,
+                  novoLink!,
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,

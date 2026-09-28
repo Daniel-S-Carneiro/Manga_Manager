@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_inappwebview_windows
   screen_retriever_windows
   url_launcher_windows
+  webview_cef
   window_manager
   window_size
 )

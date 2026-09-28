@@ -15,7 +15,9 @@ import 'utils/error_handler.dart';
 import 'utils/theme_notifier.dart';
 import 'services/update_service.dart';
 import 'controllers/refresh_controller.dart';
-import 'package:screen_retriever/screen_retriever.dart';
+
+// import 'package:webview_cef/webview_cef.dart';
+// import 'package:screen_retriever/screen_retriever.dart';
 
 // Controle global de Zoom da interface
 final ValueNotifier<double> appZoomNotifier = ValueNotifier<double>(1.0);
@@ -45,11 +47,9 @@ void main() async {
       await setupDatabaseFactory();
 
       if (!kIsWeb) {
-        // Força a escala do Windows (1.25x) como padrão ao rodar no Linux
-        if (Platform.isLinux) {
-          appZoomNotifier.value = 1.25;
-        }
-
+        // if (Platform.isLinux) {
+        //   await WebviewManager().initialize();
+        // }
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
           await windowManager.ensureInitialized();
 
@@ -184,9 +184,9 @@ class MainScreenState extends State<MainScreen> {
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _logDisplayMetrics();
-    });
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   _logDisplayMetrics();
+    // });
 
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
@@ -195,30 +195,30 @@ class MainScreenState extends State<MainScreen> {
     });
   }
 
-  Future<void> _logDisplayMetrics() async {
-    if (kIsWeb) return;
+  // Future<void> _logDisplayMetrics() async {
+  //   if (kIsWeb) return;
 
-    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final logicalSize = MediaQuery.sizeOf(context);
+  //   final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+  //   final logicalSize = MediaQuery.sizeOf(context);
 
-    try {
-      final windowSize = await windowManager.getSize();
-      final display = await screenRetriever.getPrimaryDisplay();
+  //   try {
+  //     final windowSize = await windowManager.getSize();
+  //     final display = await screenRetriever.getPrimaryDisplay();
 
-      debugPrint('\n========================================');
-      debugPrint(
-        '🖥️  MÉTRICAS DE DISPLAY E JANELA (${Platform.operatingSystem})',
-      );
-      debugPrint('========================================');
-      debugPrint('Resolução real do Monitor (Display): ${display.size}');
-      debugPrint('Tamanho físico da Janela (WindowManager): $windowSize');
-      debugPrint('Tamanho lógico da Tela (MediaQuery): $logicalSize');
-      debugPrint('Proporção de Escala (Device Pixel Ratio): $pixelRatio');
-      debugPrint('========================================\n');
-    } catch (e) {
-      debugPrint('Erro ao capturar métricas: $e');
-    }
-  }
+  //     debugPrint('\n========================================');
+  //     debugPrint(
+  //       '🖥️  MÉTRICAS DE DISPLAY E JANELA (${Platform.operatingSystem})',
+  //     );
+  //     debugPrint('========================================');
+  //     debugPrint('Resolução real do Monitor (Display): ${display.size}');
+  //     debugPrint('Tamanho físico da Janela (WindowManager): $windowSize');
+  //     debugPrint('Tamanho lógico da Tela (MediaQuery): $logicalSize');
+  //     debugPrint('Proporção de Escala (Device Pixel Ratio): $pixelRatio');
+  //     debugPrint('========================================\n');
+  //   } catch (e) {
+  //     debugPrint('Erro ao capturar métricas: $e');
+  //   }
+  // }
 
   @override
   void dispose() {

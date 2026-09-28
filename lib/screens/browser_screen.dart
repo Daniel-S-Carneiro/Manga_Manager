@@ -1,5 +1,5 @@
 import 'dart:collection';
-import 'dart:io' show Platform, Process;
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,10 +36,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
   final ValueNotifier<bool> _hasError = ValueNotifier<bool>(false);
   final ValueNotifier<String> _errorMessage = ValueNotifier<String>('');
 
-  // Novas variáveis para controle de dependências no Linux
-  final ValueNotifier<bool> _isCheckingLinuxDeps = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _missingLinuxDeps = ValueNotifier<bool>(false);
-
   final ValueNotifier<double> _posTop = ValueNotifier<double>(20.0);
   final ValueNotifier<double> _posLeft = ValueNotifier<double>(20.0);
   final ValueNotifier<bool> _isVertical = ValueNotifier<bool>(false);
@@ -48,7 +44,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   bool get _isDesktop {
     if (kIsWeb) return false;
-    return Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+    return Platform.isWindows || Platform.isMacOS;
   }
 
   // ==========================================
@@ -127,7 +123,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         window.chrome = { runtime: {}, app: { isInstalled: false } };
       }
       safeDefine(navigator, 'languages', ['pt-BR', 'pt', 'en-US', 'en']);
-      safeDefine(navigator, 'platform', 'Linux x86_64');
+      safeDefine(navigator, 'platform', 'Win32');
       safeDefine(navigator, 'hardwareConcurrency', 8);
       safeDefine(navigator, 'deviceMemory', 8);
 
@@ -140,13 +136,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   String _obterUserAgent() {
     if (kIsWeb || _isDesktop) {
-      return 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+      return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     }
     return 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
   }
 
   late final List<UserScript> _initialUserScripts = [
-    if (Platform.isAndroid || Platform.isIOS || Platform.isLinux)
+    if (Platform.isAndroid || Platform.isIOS)
       UserScript(
         source: _stealthScript,
         injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -166,35 +162,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     super.initState();
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
     _carregarConfiguracoesBarra();
-
-    if (!kIsWeb && Platform.isLinux) {
-      _verificarDependenciasLinux();
-    }
-  }
-
-  // ==========================================
-  // VALIDAÇÃO DE DEPENDÊNCIAS DO LINUX
-  // ==========================================
-  Future<void> _verificarDependenciasLinux() async {
-    _isCheckingLinuxDeps.value = true;
-    try {
-      final result = await Process.run('ldconfig', ['-p']);
-      if (result.exitCode == 0) {
-        final stdout = result.stdout.toString();
-        // Checa se as bibliotecas essenciais WebKitGTK estão instaladas
-        final hasWebKit =
-            stdout.contains('libwebkit2gtk-4.0') ||
-            stdout.contains('libwebkit2gtk-4.1');
-
-        if (!hasWebKit) {
-          _missingLinuxDeps.value = true;
-        }
-      }
-    } catch (_) {
-      // Caso o ldconfig falhe ou não exista, deixamos carregar normalmente
-    } finally {
-      _isCheckingLinuxDeps.value = false;
-    }
   }
 
   @override
@@ -210,8 +177,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _isLoading.dispose();
     _hasError.dispose();
     _errorMessage.dispose();
-    _isCheckingLinuxDeps.dispose();
-    _missingLinuxDeps.dispose();
     _posTop.dispose();
     _posLeft.dispose();
     _isVertical.dispose();
@@ -239,10 +204,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
         }
 
         await windowManager.setFullScreen(novoEstado);
-
-        if (!novoEstado) {
-          await windowManager.maximize();
-        }
       } catch (_) {}
     } else {
       _isMobileFullScreen = !_isMobileFullScreen;
@@ -297,7 +258,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
         if (isFullScreen) {
           await windowManager.setTitleBarStyle(TitleBarStyle.normal);
           await windowManager.setFullScreen(false);
-          await windowManager.maximize();
         }
       } catch (_) {}
     } else {
@@ -307,132 +267,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (mounted) {
       Navigator.pop(context, _currentUrl);
     }
-  }
-
-  Widget _buildLinuxMissingDepsWidget() {
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 550),
-        padding: const EdgeInsets.all(24.0),
-        margin: const EdgeInsets.all(16.0),
-        decoration: BoxDecoration(
-          color: Colors.grey[900],
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade700, width: 1.5),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: const [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.orange,
-                  size: 32,
-                ),
-                SizedBox(width: 12),
-                Text(
-                  'Dependência ausente no Linux',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'O navegador interno requer a biblioteca WebKitGTK para funcionar nesta distribuição Linux.',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Execute um dos comandos abaixo no seu terminal:',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _buildCodeSnippet(
-              'Ubuntu / Debian / Mint:',
-              'sudo apt install libwebkit2gtk-4.0-37',
-            ),
-            const SizedBox(height: 8),
-            _buildCodeSnippet('Fedora:', 'sudo dnf install webkit2gtk3'),
-            const SizedBox(height: 8),
-            _buildCodeSnippet('Arch Linux:', 'sudo pacman -S webkit2gtk'),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: _voltarComUrl,
-                  child: const Text(
-                    'Voltar',
-                    style: TextStyle(color: Colors.white60),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    _verificarDependenciasLinux();
-                  },
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Verificar Novamente'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCodeSnippet(String distro, String command) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(distro, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-        const SizedBox(height: 2),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.black,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              SelectableText(
-                command,
-                style: const TextStyle(
-                  color: Colors.greenAccent,
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                ),
-              ),
-              InkWell(
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: command));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Comando copiado!'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-                child: const Icon(Icons.copy, color: Colors.white54, size: 16),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 
   @override
@@ -450,170 +284,157 @@ class _BrowserScreenState extends State<BrowserScreen> {
         body: Stack(
           children: [
             ValueListenableBuilder<bool>(
-              valueListenable: _missingLinuxDeps,
-              builder: (context, missingDeps, child) {
-                if (missingDeps) {
-                  return _buildLinuxMissingDepsWidget();
+              valueListenable: _hasError,
+              builder: (context, hasError, child) {
+                if (hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 50,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Falha ao carregar WebView:\n${_errorMessage.value}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              _hasError.value = false;
+                              _isLoading.value = true;
+                              webViewController?.reload();
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Tentar Novamente'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 }
 
-                return ValueListenableBuilder<bool>(
-                  valueListenable: _hasError,
-                  builder: (context, hasError, child) {
-                    if (hasError) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20.0),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: Colors.red,
-                                size: 50,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Falha ao carregar WebView:\n${_errorMessage.value}',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(color: Colors.red),
-                              ),
-                              const SizedBox(height: 20),
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  _hasError.value = false;
-                                  _isLoading.value = true;
-                                  webViewController?.reload();
-                                },
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Tentar Novamente'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
+                return InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri(widget.initialUrl)),
+                  initialUserScripts: UnmodifiableListView(_initialUserScripts),
+                  initialSettings: InAppWebViewSettings(
+                    databaseEnabled: true,
+                    sharedCookiesEnabled: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                    allowsInlineMediaPlayback: true,
+                    javaScriptCanOpenWindowsAutomatically: false,
+                    supportMultipleWindows: false,
+                    mixedContentMode:
+                        MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+                    useWideViewPort: true,
+                    loadWithOverviewMode: true,
+                    preferredContentMode: _isDesktop
+                        ? UserPreferredContentMode.DESKTOP
+                        : UserPreferredContentMode.MOBILE,
+                    userAgent: _obterUserAgent(),
+                    isInspectable: _isDebugMode,
+                    cacheEnabled: true,
+                    clearCache: _isDebugMode,
+                    cacheMode: CacheMode.LOAD_DEFAULT,
+                    hardwareAcceleration: true,
+                    useHybridComposition: true,
+                    allowsBackForwardNavigationGestures: true,
+                    verticalScrollBarEnabled: false,
+                    horizontalScrollBarEnabled: false,
+                    javaScriptEnabled: true,
+                    domStorageEnabled: true,
+                    thirdPartyCookiesEnabled: true,
+                    useShouldOverrideUrlLoading: true,
+                    useShouldInterceptRequest: true,
+                  ),
+                  onWebViewCreated: (controller) async {
+                    webViewController = controller;
 
-                    return InAppWebView(
-                      initialUrlRequest: URLRequest(
-                        url: WebUri(widget.initialUrl),
-                      ),
-                      initialUserScripts: UnmodifiableListView(
-                        _initialUserScripts,
-                      ),
-                      initialSettings: InAppWebViewSettings(
-                        databaseEnabled: true,
-                        sharedCookiesEnabled: true,
-                        mediaPlaybackRequiresUserGesture: false,
-                        allowsInlineMediaPlayback: true,
-                        javaScriptCanOpenWindowsAutomatically: false,
-                        supportMultipleWindows: false,
-                        mixedContentMode:
-                            MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-                        useWideViewPort: true,
-                        loadWithOverviewMode: true,
-                        preferredContentMode: _isDesktop
-                            ? UserPreferredContentMode.DESKTOP
-                            : UserPreferredContentMode.MOBILE,
-                        userAgent: _obterUserAgent(),
-                        isInspectable: _isDebugMode,
-                        cacheEnabled: true,
-                        clearCache: _isDebugMode,
-                        cacheMode: CacheMode.LOAD_DEFAULT,
-                        hardwareAcceleration: true,
-                        useHybridComposition: true,
-                        allowsBackForwardNavigationGestures: true,
-                        verticalScrollBarEnabled: false,
-                        horizontalScrollBarEnabled: false,
-                        javaScriptEnabled: true,
-                        domStorageEnabled: true,
-                        thirdPartyCookiesEnabled: true,
-                        useShouldOverrideUrlLoading: true,
-                        useShouldInterceptRequest: true,
-                      ),
-                      onWebViewCreated: (controller) async {
-                        webViewController = controller;
-
-                        controller.addJavaScriptHandler(
-                          handlerName: 'toggleFullScreen',
-                          callback: (args) {
-                            _toggleFullScreen();
-                          },
-                        );
-                      },
-                      onLoadStart: (controller, url) async {
-                        _isLoading.value = true;
-                        _hasError.value = false;
-                        if (url != null) _currentUrl = url.toString();
-                      },
-                      onLoadStop: (controller, url) async {
-                        _isLoading.value = false;
-                        if (url == null) return;
-                        _currentUrl = url.toString();
-
-                        await Future.delayed(const Duration(seconds: 4));
-                        final result = await controller.evaluateJavascript(
-                          source: '''
-                            (function() {
-                              const root = document.getElementById('root');
-                              if (!root) return false;
-                              return root.innerHTML.length > 100;
-                            })();
-                          ''',
-                        );
-
-                        if (result != true && url.toString().contains('/r/')) {
-                          if (Platform.isAndroid || Platform.isIOS) {
-                            await _abrirComCustomTabs(url.toString());
-                          }
-                        }
-                      },
-                      shouldOverrideUrlLoading:
-                          (controller, navigationAction) async {
-                            final url =
-                                navigationAction.request.url?.toString() ?? '';
-                            if (_isAd(url)) {
-                              return NavigationActionPolicy.CANCEL;
-                            }
-
-                            if (!url.contains('nexustoons.com') &&
-                                !url.contains('nx-toons.xyz')) {
-                              return NavigationActionPolicy.CANCEL;
-                            }
-                            return NavigationActionPolicy.ALLOW;
-                          },
-                      shouldInterceptRequest: (controller, request) async {
-                        final url = request.url.toString();
-                        if (_isAd(url)) {
-                          try {
-                            return WebResourceResponse(
-                              contentType: 'text/plain',
-                              data: Uint8List.fromList([]),
-                              statusCode: 200,
-                            );
-                          } catch (_) {
-                            return null;
-                          }
-                        }
-                        return null;
-                      },
-                      onCreateWindow: (controller, createWindowRequest) async =>
-                          false,
-                      onReceivedError: (controller, request, error) {
-                        if (request.url.toString() == 'about:blank' ||
-                            (request.isForMainFrame ?? false) == false) {
-                          return;
-                        }
-                        _isLoading.value = false;
-                        _hasError.value = true;
-                        if (_isDebugMode) {
-                          _errorMessage.value =
-                              'Tipo: ${error.type}\nMensagem: ${error.description}';
-                        } else {
-                          _errorMessage.value =
-                              'Verifique sua conexão com a internet.';
-                        }
+                    controller.addJavaScriptHandler(
+                      handlerName: 'toggleFullScreen',
+                      callback: (args) {
+                        _toggleFullScreen();
                       },
                     );
+                  },
+                  onLoadStart: (controller, url) async {
+                    _isLoading.value = true;
+                    _hasError.value = false;
+                    if (url != null) _currentUrl = url.toString();
+                  },
+                  onLoadStop: (controller, url) async {
+                    _isLoading.value = false;
+                    if (url == null) return;
+                    _currentUrl = url.toString();
+
+                    await Future.delayed(const Duration(seconds: 4));
+                    final result = await controller.evaluateJavascript(
+                      source: '''
+                        (function() {
+                          const root = document.getElementById('root');
+                          if (!root) return false;
+                          return root.innerHTML.length > 100;
+                        })();
+                      ''',
+                    );
+
+                    if (result != true && url.toString().contains('/r/')) {
+                      if (Platform.isAndroid || Platform.isIOS) {
+                        await _abrirComCustomTabs(url.toString());
+                      }
+                    }
+                  },
+                  shouldOverrideUrlLoading:
+                      (controller, navigationAction) async {
+                        final url =
+                            navigationAction.request.url?.toString() ?? '';
+                        if (_isAd(url)) {
+                          return NavigationActionPolicy.CANCEL;
+                        }
+
+                        if (!url.contains('nexustoons.com') &&
+                            !url.contains('nx-toons.xyz')) {
+                          return NavigationActionPolicy.CANCEL;
+                        }
+                        return NavigationActionPolicy.ALLOW;
+                      },
+                  shouldInterceptRequest: (controller, request) async {
+                    final url = request.url.toString();
+                    if (_isAd(url)) {
+                      try {
+                        return WebResourceResponse(
+                          contentType: 'text/plain',
+                          data: Uint8List.fromList([]),
+                          statusCode: 200,
+                        );
+                      } catch (_) {
+                        return null;
+                      }
+                    }
+                    return null;
+                  },
+                  onCreateWindow: (controller, createWindowRequest) async =>
+                      false,
+                  onReceivedError: (controller, request, error) {
+                    if (request.url.toString() == 'about:blank' ||
+                        (request.isForMainFrame ?? false) == false) {
+                      return;
+                    }
+                    _isLoading.value = false;
+                    _hasError.value = true;
+                    if (_isDebugMode) {
+                      _errorMessage.value =
+                          'Tipo: ${error.type}\nMensagem: ${error.description}';
+                    } else {
+                      _errorMessage.value =
+                          'Verifique sua conexão com a internet.';
+                    }
                   },
                 );
               },
@@ -621,7 +442,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
             ValueListenableBuilder<bool>(
               valueListenable: _isLoading,
               builder: (context, isLoading, child) {
-                if (isLoading && !_hasError.value && !_missingLinuxDeps.value) {
+                if (isLoading && !_hasError.value) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 return const SizedBox.shrink();
