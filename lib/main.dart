@@ -47,9 +47,6 @@ void main() async {
       await setupDatabaseFactory();
 
       if (!kIsWeb) {
-        // if (Platform.isLinux) {
-        //   await WebviewManager().initialize();
-        // }
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
           await windowManager.ensureInitialized();
 
