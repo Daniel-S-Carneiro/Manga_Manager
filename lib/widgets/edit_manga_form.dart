@@ -6,6 +6,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import '../database/db_helper.dart';
+import '../utils/file_picker_helper.dart';
 
 class EditMangaFormWidget extends StatefulWidget {
   final Map<String, dynamic> manga;
@@ -88,13 +89,13 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
 
   Future<void> _escolherNovaCapa() async {
     try {
-      FilePickerResult? result = await FilePicker.pickFiles(
+      final arquivo = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
       );
 
-      if (result != null && result.files.single.path != null) {
-        String originalPath = result.files.single.path!;
+      if (arquivo != null) {
+        String originalPath = await caminhoLocalDoArquivo(arquivo);
 
         io.Directory capasDir = await DbHelper().getCapasDirectory();
 

@@ -63,4 +63,8 @@ wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull --ff-onl
 
 - `installer.nsi` está em **Windows-1252**, não em UTF-8, e as ferramentas Edit/Write recusam o arquivo. Edite preservando a codificação, por exemplo com PowerShell e `[System.Text.Encoding]::GetEncoding(1252)`.
 - Scripts `.sh` precisam de fim de linha LF, garantido pelo `.gitattributes`. Com CRLF o bash do WSL falha.
+- **Android:** usa Gradle 9.3.1, AGP 9.1.0 e Kotlin 2.4.0, as mesmas versões dos modelos do Flutter 3.47.5, com `android.builtInKotlin=true` (o app não aplica `kotlin-android`).
+  - O `android/gradle.properties` tem `android.r8.proguardAndroidTxt.disallowed=false`. É **temporário**, só enquanto o `flutter_inappwebview_android` estável usar `proguard-android.txt`.
+  - Depois de trocar a versão do AGP ou de um plugin Android, rode `flutter clean`. Restos de compilações anteriores fazem o Gradle "compilar" um plugin sem gerar classe nenhuma (erro `cannot find symbol` no `GeneratedPluginRegistrant`).
+- **`file_picker` 13:** `pickFile()` devolve um `PlatformFile?`, e no Android o arquivo pode vir só como URI `content://`, sem caminho. Use `caminhoLocalDoArquivo()` (`lib/utils/file_picker_helper.dart`). O `saveFile()` exige os `bytes` e grava o arquivo ele mesmo.
 - `.vscode/` e `dist/` estão no `.gitignore`.

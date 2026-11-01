@@ -1,8 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../services/backup_service.dart';
 import '../controllers/refresh_controller.dart';
+import '../utils/file_picker_helper.dart';
 
 class BackupManagerButton extends StatefulWidget {
   final VoidCallback onBackupRestored;
@@ -37,25 +41,37 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
 
   Future<void> _fazerBackup() async {
     Navigator.pop(context);
+    setState(() => _isLoading = true);
 
+    String? tempPath;
     try {
-      final String? outputFile = await FilePicker.saveFile(
+      // O diálogo de salvar grava os bytes ele mesmo (file_picker 13+): o
+      // backup é gerado antes, numa pasta temporária, e depois entregue a ele
+      final tempDir = await getTemporaryDirectory();
+      tempPath = p.join(
+        tempDir.path,
+        'manga_backup_${DateTime.now().millisecondsSinceEpoch}.tar.gz',
+      );
+      await _backupService.exportBackup(tempPath);
+      final bytes = await File(tempPath).readAsBytes();
+
+      final destino = await FilePicker.saveFile(
         dialogTitle: 'Salvar Backup',
         fileName: 'manga_backup.tar.gz',
-        type: FileType.custom,
-        allowedExtensions: ['gz', 'tar'],
+        bytes: bytes,
+        mimeType: 'application/gzip',
       );
+      if (destino == null) return;
 
-      if (outputFile == null) return;
-
-      setState(() => _isLoading = true);
-
-      String pathFinal = outputFile;
-      if (!pathFinal.toLowerCase().endsWith('.tar.gz')) {
-        pathFinal = '$pathFinal.tar.gz';
+      // Garante a extensão quando o destino é um arquivo local (no Android a
+      // URI é content:// e o nome fica a cargo do sistema)
+      if (destino.scheme == 'file') {
+        final salvo = destino.toFilePath();
+        if (!salvo.toLowerCase().endsWith('.tar.gz')) {
+          await File(salvo).rename('$salvo.tar.gz');
+        }
       }
 
-      await _backupService.exportBackup(pathFinal);
       _mostrarFeedback('Backup exportado com sucesso!');
     } catch (e) {
       _mostrarFeedback(
@@ -63,6 +79,11 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
         isError: true,
       );
     } finally {
+      if (tempPath != null) {
+        try {
+          await File(tempPath).delete();
+        } catch (_) {}
+      }
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -70,24 +91,18 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
   Future<void> _executarRestauracao({required bool merge}) async {
     Navigator.pop(context);
 
-    final result = await FilePicker.pickFiles(
+    final arquivo = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: ['gz', 'tar'],
     );
 
-    if (result == null ||
-        result.files.isEmpty ||
-        result.files.single.path == null) {
-      return;
-    }
+    if (arquivo == null || !mounted) return;
 
     setState(() => _isLoading = true);
 
     try {
-      final msg = await _backupService.restoreBackup(
-        result.files.single.path!,
-        merge: merge,
-      );
+      final caminho = await caminhoLocalDoArquivo(arquivo);
+      final msg = await _backupService.restoreBackup(caminho, merge: merge);
       _mostrarFeedback(msg);
       _atualizarInterface();
     } catch (e) {
