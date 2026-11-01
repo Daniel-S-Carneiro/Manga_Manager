@@ -1,0 +1,65 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Visão geral
+
+App Flutter pessoal para gerenciar uma biblioteca de mangás e ler os capítulos num navegador embutido. O foco é desktop (Windows principal, Linux testado via WSL 2); também gera APK Android. Repositório: `github.com/Daniel-S-Carneiro/Manga_Manager`.
+
+Código, comentários, nomes de variáveis e textos da interface são em **português**. Mantenha esse padrão.
+
+## Comandos (Windows, na raiz do projeto)
+
+```bash
+flutter pub get
+flutter analyze                      # analisa só lib/ e test/ (pastas de plataforma excluídas)
+flutter run -d windows
+flutter test                         # todos os testes
+flutter test test/widget_test.dart   # um arquivo
+flutter test --plain-name "nome do teste"
+build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/
+```
+
+- `test/widget_test.dart` ainda é o teste de contador do template do Flutter e **não** corresponde ao app (falha). Não use `flutter test` como prova de que algo funciona até existirem testes reais.
+- `build_installer.cmd` lê a versão da linha `version:` do `pubspec.yaml` (parte antes do `+`) e passa para o `installer.nsi` como `APP_VERSION`. Precisa do NSIS em `C:\Program Files (x86)\NSIS\makensis.exe`.
+
+## Linux via WSL (distro `Ubuntu`)
+
+- Use sempre `~/flutter/bin/flutter`. Num `wsl -d Ubuntu -- bash -c "..."` não interativo, `flutter` puro aponta para o SDK do **Windows** (`/mnt/c/tools/flutter`).
+- `~/StudioProjects/manga_manager` é um clone Git do mesmo repositório. Para testar no Linux: commit + push no Windows e depois `git pull` nesse clone.
+- `~/manga_manager` é uma cópia antiga **sem Git**, mas o passo 3 do `build_installer.cmd` compila o pacote Linux a partir dela. Portanto o `.tar.gz` Linux gerado pelo script pode sair desatualizado.
+- Executar no Linux: `flutter run -d linux --no-enable-impeller` com `GDK_BACKEND=x11` (configuração do `.vscode/launch.json`).
+- Build: `~/flutter/bin/flutter build linux --release` gera `build/linux/x64/release/bundle`, que é empacotado como `MangaManager_Linux_x64.tar.gz`.
+
+Exemplo a partir do Windows:
+
+```bash
+wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull && ~/flutter/bin/flutter build linux --release'
+```
+
+## Arquitetura
+
+**Estado global sem biblioteca de gerenciamento de estado.** São `ValueNotifier`/`ChangeNotifier` globais:
+- `appZoomNotifier` e `ctrlPressedNotifier` (`lib/main.dart`): o zoom é aplicado no `MaterialApp.builder` dividindo o `MediaQuery.size`, multiplicando o `devicePixelRatio` e usando `Transform.scale`. Ctrl + roda do mouse altera o zoom e trava o scroll da grade. O valor é salvo com debounce na chave `zoom`.
+- `ThemeController.themeNotifier` (`lib/utils/theme_notifier.dart`): tema salvo na chave `tema`.
+- `globalRefreshController` (`lib/controllers/refresh_controller.dart`): quem altera o banco fora da tela principal (por exemplo, restauração de backup) chama `.refresh()` para a `MainScreen` recarregar a lista.
+
+**Banco (`lib/database/db_helper.dart`).** Singleton `DbHelper` sobre sqflite. No desktop usa FFI, e `setupDatabaseFactory()` em `main()` precisa rodar antes de qualquer acesso. Os registros são `Map<String, dynamic>` puros, sem classes de modelo.
+- Tabela `mangas`: `id, nome_pt, nome_en, capitulo, link_url, capa_path, status_leitura, ordem_leitura`.
+- Tabela `configuracoes`: chave/valor usada para **todas** as preferências (`tema`, `zoom`, `barra_x`, `barra_y`, `barra_vertical`, `user_agent_custom`, `adblock_domains_list`, `allowed_domains_list`, `browser_helper_last_update`).
+- O schema está na versão 2. Mudança de schema exige subir a `version` em `_initDatabase` e adicionar um passo em `_onUpgrade`, porque usuários instalados já têm bancos antigos.
+- Debug e release usam dados separados por `kDebugMode`: `manga_manager_debug.db` / `manga_manager_capas_debug` contra `manga_manager.db` / `manga_manager_capas`. As capas ficam como arquivos em Documentos e o banco guarda o caminho (`capa_path`). No Windows o banco fica em `%APPDATA%\com.example\manga_manager`, e o `installer.nsi` depende desse caminho para limpar dados.
+- `lockDatabase()`/`unlockDatabase()`: durante backup/restauração qualquer acesso a `database` lança exceção.
+
+**Tela principal (`MainScreen` em `lib/main.dart`).** Paginação de 30 em 30 com scroll infinito e busca com debounce. A reordenação por arrasto fica bloqueada durante uma busca ou antes de carregar a lista inteira, porque `reordenarMangas` regrava `ordem_leitura` a partir da lista em memória. Os cards se atualizam individualmente com `_atualizarMangaEspecifico`.
+
+**Leitor embutido.** `MangaCardWidget._abrirLink` (`lib/widgets/manga_card.dart`) abre `LinuxBrowserScreen` (webview_cef) no Linux e `BrowserScreen` (flutter_inappwebview, WebView2 no Windows) nas demais plataformas. As duas telas retornam um `Map` com `url` e `capitulo` (ou só uma `String`), que o card usa para oferecer a atualização do link e do capítulo. A lógica comum fica em `lib/utils/browser_helper.dart`: script de adblock injetado, filtro de navegação por **host** permitido, scripts de stealth (o de Android é diferente), detecção do número do capítulo pelo título ou pela URL, user agent e sincronização remota das listas (só https em release). As duas telas salvam a posição da `FloatingControlBar`. Ao mudar o comportamento do leitor, **mantenha as duas telas coerentes**.
+
+**Backup (`lib/services/backup_service.dart`).** Gera um `.tar.gz` com o banco e as capas via `TarStreamHelper` dentro de `Isolate.run`. A restauração substitui tudo ou mescla (a mescla evita duplicados por `nome_pt`). A restauração procura o arquivo de banco com o nome do modo atual, então um backup feito em debug não restaura em release, e vice-versa.
+
+**Atualização automática.** `lib/services/update_service.dart` e `lib/widgets/version_updater_button.dart` consultam a última release do GitHub, comparam a tag (sem o `v`) com a versão do app (`pubspec.yaml`) e escolhem o asset pela extensão: `.exe` no Windows, `.apk` no Android e `.tar.gz` no Linux. As releases precisam manter essas extensões. No Windows o instalador baixado roda elevado e silencioso (`/S`) via PowerShell `Start-Process -Verb RunAs`.
+
+## Armadilhas
+
+- `installer.nsi` está em **Windows-1252**, não em UTF-8, e as ferramentas Edit/Write recusam o arquivo. Edite preservando a codificação, por exemplo com PowerShell e `[System.Text.Encoding]::GetEncoding(1252)`.
+- `.vscode/` e `dist/` estão no `.gitignore`.
