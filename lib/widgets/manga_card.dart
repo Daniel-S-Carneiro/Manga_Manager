@@ -312,34 +312,54 @@ class MangaCardWidget extends StatelessWidget {
     }
 
     try {
-      String? novoLink;
-
-      // Desvia a rota dependendo do sistema operacional
-      if (Platform.isLinux) {
-        novoLink = await Navigator.push<String>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LinuxBrowserScreen(
+      // Um único push — Linux ou resto
+      final dynamic result = await Navigator.push<dynamic>(
+        context,
+        MaterialPageRoute(
+          builder: (context) {
+            if (Platform.isLinux) {
+              return LinuxBrowserScreen(
+                initialUrl: urlFinal,
+                mangaTitle: manga['nome_pt'] ?? 'Leitor',
+              );
+            }
+            return BrowserScreen(
               initialUrl: urlFinal,
               mangaTitle: manga['nome_pt'] ?? 'Leitor',
-            ),
-          ),
-        );
-      } else {
-        novoLink = await Navigator.push<String>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => BrowserScreen(
-              initialUrl: urlFinal,
-              mangaTitle: manga['nome_pt'] ?? 'Leitor',
-            ),
-          ),
-        );
-      }
+            );
+          },
+        ),
+      );
 
       if (!context.mounted) return;
 
-      if (novoLink != null && novoLink.isNotEmpty && novoLink != urlString) {
+      // Variáveis no MESMO nível do dialog
+      String? novoLink;
+      int? novoCap;
+
+      if (result is Map) {
+        novoLink = result['url'] as String?;
+        final c = result['capitulo'];
+        if (c is int) {
+          novoCap = c;
+        } else if (c is num) {
+          novoCap = c.toInt();
+        }
+      } else if (result is String) {
+        novoLink = result;
+      }
+
+      final String? linkParaSalvar = (novoLink != null && novoLink.isNotEmpty)
+          ? novoLink
+          : null;
+
+      final bool linkMudou =
+          linkParaSalvar != null && linkParaSalvar != urlString;
+      final bool capMudou = novoCap != null && novoCap > 0;
+
+      if (!linkMudou && !capMudou) return;
+
+      if (linkMudou) {
         final bool? confirmar = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -349,15 +369,19 @@ class MangaCardWidget extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'A página final antes de fechar o leitor é diferente da inicial. Deseja salvar este novo link para o mangá?',
+                  'A página final antes de fechar o leitor é diferente da inicial. Deseja salvar?',
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  novoLink!,
+                  linkParaSalvar,
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (capMudou) ...[
+                  const SizedBox(height: 8),
+                  Text('Capítulo detectado: $novoCap'),
+                ],
               ],
             ),
             actions: [
@@ -376,9 +400,19 @@ class MangaCardWidget extends StatelessWidget {
         if (confirmar == true) {
           final id = manga['id'];
           if (id != null) {
-            await DbHelper().updateManga(id, {'link_url': novoLink});
+            final updates = <String, dynamic>{'link_url': linkParaSalvar};
+            if (capMudou) {
+              updates['capitulo'] = novoCap;
+            }
+            await DbHelper().updateManga(id, updates);
             onUpdate();
           }
+        }
+      } else if (capMudou) {
+        final id = manga['id'];
+        if (id != null) {
+          await DbHelper().updateManga(id, {'capitulo': novoCap});
+          onUpdate();
         }
       }
     } catch (e) {

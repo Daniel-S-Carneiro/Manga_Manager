@@ -17,6 +17,7 @@ class MeuDbViewer extends StatefulWidget {
 
 class _MeuDbViewerState extends State<MeuDbViewer> {
   late Future<List<Map<String, dynamic>>> _mangaListFuture;
+  late Future<List<Map<String, dynamic>>> _configFuture;
   late Future<Map<String, String>> _caminhosSistemaFuture;
 
   @override
@@ -30,7 +31,14 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
   void _recarregarLista() {
     setState(() {
       _mangaListFuture = DbHelper().getMangas(limit: 100, offset: 0);
+      _configFuture = _obterConfiguracoes();
     });
+  }
+
+  // Lê a tabela 'configuracoes' (fica dentro do mesmo arquivo .db dos mangás)
+  Future<List<Map<String, dynamic>>> _obterConfiguracoes() async {
+    final db = await DbHelper().database;
+    return db.query('configuracoes', orderBy: 'chave ASC');
   }
 
   Future<Map<String, String>> _obterCaminhos() async {
@@ -259,6 +267,51 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
                     SelectableText(
                       caminhos['dir']!,
                       style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'CONFIGURAÇÕES (tabela "configuracoes", no mesmo arquivo .db):',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _configFuture,
+                      builder: (context, configSnapshot) {
+                        if (configSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Text(
+                            'Carregando...',
+                            style: TextStyle(fontSize: 12),
+                          );
+                        }
+                        if (configSnapshot.hasError) {
+                          return SelectableText(
+                            'Tabela "configuracoes" não encontrada ou inacessível: ${configSnapshot.error}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.red,
+                            ),
+                          );
+                        }
+
+                        final configs = configSnapshot.data ?? [];
+                        if (configs.isEmpty) {
+                          return const Text(
+                            'Tabela existe, mas está vazia.',
+                            style: TextStyle(fontSize: 12),
+                          );
+                        }
+
+                        return SelectableText(
+                          configs
+                              .map((c) => '${c['chave']} = ${c['valor']}')
+                              .join('\n'),
+                          style: const TextStyle(fontSize: 12),
+                        );
+                      },
                     ),
                   ],
                 ),

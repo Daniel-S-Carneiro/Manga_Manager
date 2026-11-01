@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart'; // PointerSignalEvent / PointerScrollEvent
+import 'package:flutter/services.dart'; // HardwareKeyboard / KeyEvent
 import 'package:window_manager/window_manager.dart';
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -21,6 +23,75 @@ import 'controllers/refresh_controller.dart';
 
 // Controle global de Zoom da interface
 final ValueNotifier<double> appZoomNotifier = ValueNotifier<double>(1.0);
+
+// Estado do modificador de zoom (Ctrl; Cmd no macOS): usado para travar o
+// scroll da grade enquanto o usuário dá zoom com a roda do mouse
+final ValueNotifier<bool> ctrlPressedNotifier = ValueNotifier<bool>(false);
+
+// Retorna true se o modificador de zoom está pressionado
+bool _modificadorZoomPressionado() {
+  final kb = HardwareKeyboard.instance;
+  return defaultTargetPlatform == TargetPlatform.macOS
+      ? kb.isMetaPressed
+      : kb.isControlPressed;
+}
+
+// Handler de teclado: apenas atualiza o estado do Ctrl
+bool _atualizarEstadoCtrl(KeyEvent event) {
+  final pressed = _modificadorZoomPressionado();
+  if (ctrlPressedNotifier.value != pressed) {
+    ctrlPressedNotifier.value = pressed;
+  }
+  return false; // não consome o evento
+}
+
+// Ctrl + roda do mouse => altera o zoom
+void _zoomComScroll(PointerSignalEvent event) {
+  if (event is! PointerScrollEvent) return;
+  if (!_modificadorZoomPressionado()) return;
+
+  final dy = event.scrollDelta.dy;
+  if (dy == 0) return;
+
+  const passo = 0.1; // mesmo passo do Slider (0.5–2.0 com 15 divisões)
+  final novo = appZoomNotifier.value + (dy < 0 ? passo : -passo);
+  appZoomNotifier.value = (novo.clamp(0.5, 2.0) * 100).round() / 100;
+}
+
+// Chave usada na tabela 'configuracoes' para guardar o zoom
+const String _zoomConfigKey = 'zoom';
+Timer? _zoomSaveTimer;
+
+// Lê o zoom salvo no banco (se existir) e aplica antes de abrir a tela
+Future<void> _carregarZoomSalvo() async {
+  try {
+    final salvo = await DbHelper().getConfig(_zoomConfigKey);
+    final valor = double.tryParse(salvo ?? '');
+    if (valor != null) {
+      appZoomNotifier.value = valor.clamp(0.5, 2.0).toDouble();
+    }
+  } catch (e) {
+    debugPrint('Erro ao carregar zoom salvo: $e');
+  }
+
+  // Só começa a salvar depois de carregar, para não regravar o valor lido
+  appZoomNotifier.addListener(_agendarSalvarZoom);
+}
+
+// Salva o zoom 500 ms após a última mudança (evita gravar a cada passo do slider/scroll)
+void _agendarSalvarZoom() {
+  _zoomSaveTimer?.cancel();
+  _zoomSaveTimer = Timer(const Duration(milliseconds: 500), () async {
+    try {
+      await DbHelper().setConfig(
+        _zoomConfigKey,
+        appZoomNotifier.value.toStringAsFixed(2),
+      );
+    } catch (e) {
+      debugPrint('Erro ao salvar zoom: $e');
+    }
+  });
+}
 
 Future<void> setupDatabaseFactory() async {
   try {
@@ -44,7 +115,11 @@ void main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
+      HardwareKeyboard.instance.addHandler(_atualizarEstadoCtrl);
+
       await setupDatabaseFactory();
+      await ThemeController.initTheme();
+      await _carregarZoomSalvo();
 
       if (!kIsWeb) {
         if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -133,7 +208,11 @@ class MangaManagerApp extends StatelessWidget {
                       child: Transform.scale(
                         scale: zoom,
                         alignment: Alignment.center,
-                        child: child!,
+                        // Escuta Ctrl + roda do mouse em todo o app
+                        child: Listener(
+                          onPointerSignal: _zoomComScroll,
+                          child: child!,
+                        ),
                       ),
                     ),
                   ),
@@ -177,6 +256,7 @@ class MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    ctrlPressedNotifier.addListener(_onCtrlChanged);
     globalRefreshController.addListener(_onRefreshRequested);
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
@@ -219,10 +299,16 @@ class MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    ctrlPressedNotifier.removeListener(_onCtrlChanged);
     globalRefreshController.removeListener(_onRefreshRequested);
     _scrollController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  // Reconstrói a tela quando o Ctrl é pressionado/solto (troca o physics da grade)
+  void _onCtrlChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onRefreshRequested() {
@@ -334,7 +420,7 @@ class MainScreenState extends State<MainScreen> {
                       // --- CONTROLE DE ZOOM ADICIONADO AQUI ---
                       if (isDesktop) ...[
                         Tooltip(
-                          message: 'Zoom da Interface',
+                          message: 'Zoom da Interface (Ctrl + scroll)',
                           child: Icon(
                             Icons.zoom_in,
                             color: theme.colorScheme.primary,
@@ -389,6 +475,10 @@ class MainScreenState extends State<MainScreen> {
                         ? const Center(child: CircularProgressIndicator())
                         : ReorderableGridView.builder(
                             controller: _scrollController,
+                            // Trava o scroll da grade enquanto o Ctrl está pressionado
+                            physics: ctrlPressedNotifier.value
+                                ? const NeverScrollableScrollPhysics()
+                                : null,
                             addAutomaticKeepAlives: true,
                             addRepaintBoundaries: true,
                             padding: const EdgeInsets.all(8.0),
