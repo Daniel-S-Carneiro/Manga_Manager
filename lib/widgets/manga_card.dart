@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../database/db_helper.dart';
 import '../screens/browser_screen.dart';
 import '../screens/linux_browser_screen.dart';
+import 'atualizacao_leitura_dialog.dart';
 import 'edit_manga_form.dart';
 
 class MangaCardWidget extends StatelessWidget {
@@ -333,88 +334,33 @@ class MangaCardWidget extends StatelessWidget {
 
       if (!context.mounted) return;
 
-      // Variáveis no MESMO nível do dialog
-      String? novoLink;
-      int? novoCap;
+      final int? capSalvo = (manga['capitulo'] as num?)?.toInt();
+      final mudancas = MudancasLeitura.calcular(
+        resultado: result,
+        linkSalvo: urlString,
+        capSalvo: capSalvo,
+      );
+      if (mudancas.vazia) return;
 
-      if (result is Map) {
-        novoLink = result['url'] as String?;
-        final c = result['capitulo'];
-        if (c is int) {
-          novoCap = c;
-        } else if (c is num) {
-          novoCap = c.toInt();
-        }
-      } else if (result is String) {
-        novoLink = result;
-      }
+      // Link e capítulo só são gravados com confirmação
+      final escolha = await confirmarAtualizacaoLeitura(
+        context,
+        mudancas: mudancas,
+        capSalvo: capSalvo,
+      );
+      if (escolha == null) return;
 
-      final String? linkParaSalvar = (novoLink != null && novoLink.isNotEmpty)
-          ? novoLink
-          : null;
+      final updates = <String, dynamic>{
+        if (escolha.salvarLink && mudancas.novoLink != null)
+          'link_url': mudancas.novoLink,
+        if (escolha.salvarCap && mudancas.novoCap != null)
+          'capitulo': mudancas.novoCap,
+      };
+      final id = manga['id'];
+      if (updates.isEmpty || id == null) return;
 
-      final bool linkMudou =
-          linkParaSalvar != null && linkParaSalvar != urlString;
-      final bool capMudou = novoCap != null && novoCap > 0;
-
-      if (!linkMudou && !capMudou) return;
-
-      if (linkMudou) {
-        final bool? confirmar = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Atualizar Link / Capítulo?'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'A página final antes de fechar o leitor é diferente da inicial. Deseja salvar?',
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  linkParaSalvar,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (capMudou) ...[
-                  const SizedBox(height: 8),
-                  Text('Capítulo detectado: $novoCap'),
-                ],
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Manter Anterior'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Atualizar'),
-              ),
-            ],
-          ),
-        );
-
-        if (confirmar == true) {
-          final id = manga['id'];
-          if (id != null) {
-            final updates = <String, dynamic>{'link_url': linkParaSalvar};
-            if (capMudou) {
-              updates['capitulo'] = novoCap;
-            }
-            await DbHelper().updateManga(id, updates);
-            onUpdate();
-          }
-        }
-      } else if (capMudou) {
-        final id = manga['id'];
-        if (id != null) {
-          await DbHelper().updateManga(id, {'capitulo': novoCap});
-          onUpdate();
-        }
-      }
+      await DbHelper().updateManga(id, updates);
+      onUpdate();
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

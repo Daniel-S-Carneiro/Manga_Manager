@@ -15,12 +15,12 @@ flutter pub get
 flutter analyze                      # analisa só lib/ e test/ (pastas de plataforma excluídas)
 flutter run -d windows
 flutter test                         # todos os testes
-flutter test test/widget_test.dart   # um arquivo
+flutter test test/browser_helper_test.dart   # um arquivo
 flutter test --plain-name "nome do teste"
 build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/ (exige árvore Git limpa)
 ```
 
-- `test/widget_test.dart` ainda é o teste de contador do template do Flutter e **não** corresponde ao app (falha). Não use `flutter test` como prova de que algo funciona até existirem testes reais.
+- Os testes cobrem só lógica pura e diálogos (`BrowserHelper`, `atualizacao_leitura_dialog.dart`). Nada que abra o banco ou o WebView é testado automaticamente; isso precisa de teste manual no app.
 - `build_installer.cmd` lê a versão da linha `version:` do `pubspec.yaml` (parte antes do `+`) e passa para o `installer.nsi` como `APP_VERSION`. Precisa do NSIS em `C:\Program Files (x86)\NSIS\makensis.exe`.
 
 ## Linux via WSL (distro `Ubuntu`)
@@ -53,7 +53,7 @@ wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull --ff-onl
 
 **Tela principal (`MainScreen` em `lib/main.dart`).** Paginação de 30 em 30 com scroll infinito e busca com debounce. A reordenação por arrasto fica bloqueada durante uma busca ou antes de carregar a lista inteira, porque `reordenarMangas` regrava `ordem_leitura` a partir da lista em memória. Os cards se atualizam individualmente com `_atualizarMangaEspecifico`.
 
-**Leitor embutido.** `MangaCardWidget._abrirLink` (`lib/widgets/manga_card.dart`) abre `LinuxBrowserScreen` (webview_cef) no Linux e `BrowserScreen` (flutter_inappwebview, WebView2 no Windows) nas demais plataformas. As duas telas retornam um `Map` com `url` e `capitulo` (ou só uma `String`), que o card usa para oferecer a atualização do link e do capítulo. A lógica comum fica em `lib/utils/browser_helper.dart`: script de adblock injetado, filtro de navegação por **host** permitido, scripts de stealth (o de Android é diferente), detecção do número do capítulo pelo título ou pela URL, user agent e sincronização remota das listas (só https em release). As duas telas salvam a posição da `FloatingControlBar`. Ao mudar o comportamento do leitor, **mantenha as duas telas coerentes**.
+**Leitor embutido.** `MangaCardWidget._abrirLink` (`lib/widgets/manga_card.dart`) abre `LinuxBrowserScreen` (webview_cef) no Linux e `BrowserScreen` (flutter_inappwebview, WebView2 no Windows) nas demais plataformas. O `BrowserScreen` retorna um `Map` com `url` e `capitulo`. O `LinuxBrowserScreen` retorna só a URL, porque não detecta o capítulo. O card compara esse retorno com o que está salvo (`MudancasLeitura` em `lib/widgets/atualizacao_leitura_dialog.dart`) e **sempre pede confirmação** antes de gravar o link ou o capítulo, porque a detecção do capítulo pode errar. A lógica comum fica em `lib/utils/browser_helper.dart`: script de adblock injetado, filtro de navegação por **host** permitido, scripts de stealth (o de Android é diferente), detecção do número do capítulo pelo título ou pela URL, user agent e sincronização remota das listas (só https em release). As duas telas salvam a posição da `FloatingControlBar`. Ao mudar o comportamento do leitor, **mantenha as duas telas coerentes**.
 
 **Backup (`lib/services/backup_service.dart`).** Gera um `.tar.gz` com o banco e as capas via `TarStreamHelper` dentro de `Isolate.run`. A restauração substitui tudo ou mescla (a mescla evita duplicados por `nome_pt`). A restauração procura o arquivo de banco com o nome do modo atual, então um backup feito em debug não restaura em release, e vice-versa.
 

@@ -58,6 +58,8 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
   }
 
   /// Origem da sessão (host de initialUrl) + extras do helper/DB.
+  /// Compara pelo HOST, como o BrowserScreen: um domínio permitido escondido
+  /// na query string ou no caminho não libera a navegação.
   bool _isAllowedUrl(String url) {
     if (url.isEmpty || url.startsWith('about:') || url.startsWith('data:')) {
       return false;
@@ -66,8 +68,7 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
         BrowserHelper.isSameOriginHost(url, _originHost)) {
       return true;
     }
-    final lower = url.toLowerCase();
-    return _allowedDomains.any((d) => lower.contains(d.toLowerCase()));
+    return BrowserHelper.hostMatchesAllowed(url, _allowedDomains);
   }
 
   @override
