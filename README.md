@@ -12,6 +12,7 @@
   <a href="https://github.com/Daniel-S-Carneiro/Manga_Manager/releases/latest"><img src="https://img.shields.io/github/v/release/Daniel-S-Carneiro/Manga_Manager?label=vers%C3%A3o" alt="Última versão"></a>
   <img src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter" alt="Flutter 3.47">
   <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20Linux%20%7C%20Android-informational" alt="Plataformas: Windows, Linux e Android">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-green" alt="Licença MIT"></a>
 </p>
 
 ---
@@ -108,3 +109,7 @@ installer.nsi          # instalador do Windows (NSIS)
 ## Contribuição
 
 Este é um projeto pessoal, feito para organizar e acompanhar a leitura de mangás. Sugestões e relatos de problemas são bem-vindos nas [issues](https://github.com/Daniel-S-Carneiro/Manga_Manager/issues).
+
+## Licença
+
+Distribuído sob a licença MIT. Veja o arquivo [LICENSE](LICENSE).
