@@ -69,6 +69,10 @@ class BrowserHelper {
 })();
 ''';
 
+  /// Lê o que o adblock anotou em modo diagnóstico (JSON ou "null").
+  static const String scriptLerDiagnostico =
+      'JSON.stringify(window.__mangaDiag || null)';
+
   /// Bloqueia cliques em iframes e em elementos com classe/id de anúncio
   /// (só desktop). Casa "ad", "ads", "banner"... só como palavra inteira
   /// (antes, 'ad' pegava "read", "reader", "header", "loader", "download"...).
@@ -415,6 +419,13 @@ class BrowserHelper {
 
   /// [sessionOriginHost] = host de initialUrl (ex.: leituramanga.net).
   /// [adDomains] / [allowedDomains] podem ser passados para evitar reler o banco.
+  /// [diagnostico]: a página guarda em `window.__mangaDiag` as requisições que
+  /// falharam, os erros de JavaScript e as navegações bloqueadas, para o
+  /// leitor registrar no log (ver [scriptLerDiagnostico]).
+  /// [bloquearNavegacaoPorScript]: cancela pela Navigation API a navegação da
+  /// página inteira para host não permitido. Só o Linux liga: o BrowserScreen
+  /// já cancela pelo shouldOverrideUrlLoading. EM TESTE: suspeito de causar
+  /// "Erro ao carregar o capítulo" no Nexus.
   ///
   /// As listas vão para o JS como JSON e a comparação é feita pelo HOST
   /// (nada de regex interpolada, então entradas com "/" não quebram o script).
@@ -422,6 +433,8 @@ class BrowserHelper {
     String? sessionOriginHost,
     List<String>? adDomains,
     List<String>? allowedDomains,
+    bool diagnostico = false,
+    bool bloquearNavegacaoPorScript = false,
   }) async {
     final ads = adDomains ?? await getAdDomains();
     final allowed = allowedDomains ?? await getAllowedDomains();
@@ -462,6 +475,26 @@ class BrowserHelper {
 
   const AD_LIST = $adJson;
   const ALLOW_LIST = $allowJson;
+
+  // Diagnóstico (só quando o leitor pede): o app lê window.__mangaDiag ao fechar
+  const DIAGNOSTICO = $diagnostico;
+  const BLOQUEAR_NAVEGACAO = $bloquearNavegacaoPorScript;
+  const DIAG = DIAGNOSTICO
+    ? (window.__mangaDiag = window.__mangaDiag || { bloqueios: [], http: [], erros: [] })
+    : null;
+  function anotar(chave, msg) {
+    if (!DIAG || DIAG[chave].length >= 40) return;
+    DIAG[chave].push(new Date().toISOString().slice(11, 19) + ' ' + String(msg).slice(0, 300));
+  }
+  if (DIAG) {
+    window.addEventListener('error', function(e) {
+      anotar('erros', (e.message || 'erro') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      const r = e.reason;
+      anotar('erros', 'promise: ' + ((r && (r.message || String(r))) || r));
+    });
+  }
 
   function hostOf(url) {
     try { return new URL(String(url || ''), location.href).hostname.toLowerCase(); }
@@ -510,7 +543,15 @@ class BrowserHelper {
       if (isAd(url)) {
         return Promise.resolve(new Response(new Blob(), {status: 200, statusText: 'OK'}));
       }
-      return _fetch.apply(this, arguments);
+      const resposta = _fetch.apply(this, arguments);
+      if (!DIAG) return resposta;
+      return resposta.then(function(r) {
+        if (r && !r.ok) anotar('http', r.status + ' ' + url);
+        return r;
+      }, function(err) {
+        anotar('http', 'falhou ' + url + ' (' + err + ')');
+        throw err;
+      });
     };
   }
 
@@ -522,10 +563,19 @@ class BrowserHelper {
       const _send = xhrProto.send;
       xhrProto.open = function(method, url) {
         this.__mangaBlocked = isAd(url);
+        this.__mangaUrl = url;
         return _open.apply(this, arguments);
       };
       xhrProto.send = function() {
         if (this.__mangaBlocked) return; // Aborta silenciosamente
+        if (DIAG) {
+          const xhr = this;
+          xhr.addEventListener('loadend', function() {
+            if (xhr.status === 0 || xhr.status >= 400) {
+              anotar('http', xhr.status + ' ' + xhr.__mangaUrl);
+            }
+          });
+        }
         return _send.apply(this, arguments);
       };
     }
@@ -570,7 +620,7 @@ class BrowserHelper {
   // que não intercepta navegação) isso evita o leitor voltar recarregando o
   // capítulo. Só na janela principal; voltar/avançar e recarregar passam.
   try {
-    if (window.top === window && window.navigation &&
+    if (BLOQUEAR_NAVEGACAO && window.top === window && window.navigation &&
         typeof window.navigation.addEventListener === 'function') {
       window.navigation.addEventListener('navigate', function(e) {
         try {
@@ -579,6 +629,7 @@ class BrowserHelper {
           const destino = (e.destination && e.destination.url) || '';
           if (!destino || /^(about|javascript|data|blob):/i.test(destino)) return;
           if (isAllowedNav(destino)) return;
+          anotar('bloqueios', destino);
           e.preventDefault();
         } catch (_) {}
       });

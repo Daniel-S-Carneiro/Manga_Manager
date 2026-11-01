@@ -34,6 +34,11 @@ class _LeitorFalsoState extends State<_LeitorFalso>
     super.dispose();
   }
 
+  int chamadasAntesDeFechar = 0;
+
+  @override
+  Future<void> antesDeFechar() async => chamadasAntesDeFechar++;
+
   @override
   Widget build(BuildContext context) => const SizedBox.expand();
 }
@@ -201,6 +206,7 @@ void main() {
         'url': 'https://site.com/manga/one-piece/capitulo-11',
         'capitulo': 11,
       });
+      expect(leitor.chamadasAntesDeFechar, 1);
     });
   });
 }

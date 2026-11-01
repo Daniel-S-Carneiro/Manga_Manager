@@ -131,6 +131,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         sessionOriginHost: originHost,
         adDomains: adDomains,
         allowedDomains: allowedDomains,
+        // Com o debug ligado, a página anota falhas para o log ao fechar
+        diagnostico: _isDebugMode,
       );
     } catch (e, st) {
       logLeitor('Falha ao montar o adblock: $e\n$st');
@@ -288,6 +290,22 @@ class _BrowserScreenState extends State<BrowserScreen>
     await detectarCapituloDaPagina(
       (script) => controller.evaluateJavascript(source: script),
     );
+  }
+
+  // Registra o que a página anotou (requisições com erro, erros de JS e
+  // navegações bloqueadas): é como investigamos falhas como "Erro ao carregar"
+  @override
+  Future<void> antesDeFechar() async {
+    final c = webViewController;
+    if (!_isDebugMode || c == null) return;
+    try {
+      final diag = await c
+          .evaluateJavascript(source: BrowserHelper.scriptLerDiagnostico)
+          .timeout(const Duration(seconds: 2));
+      logLeitor('diagnóstico da página: $diag');
+    } catch (e) {
+      logLeitor('diagnóstico indisponível: $e');
+    }
   }
 
   void _recarregar() {

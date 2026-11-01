@@ -86,6 +86,10 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
       final userAgent = await BrowserHelper.getUserAgent();
       _adBlockScriptCache = await BrowserHelper.getAdBlockScript(
         sessionOriginHost: originHost,
+        // Com os logs ligados, a página anota falhas para o log ao fechar
+        diagnostico: _kDebugLinuxBrowser,
+        // O CEF não tem shouldOverrideUrlLoading: cancela pop-under por script
+        bloquearNavegacaoPorScript: true,
       );
       allowedDomains = await BrowserHelper.getAllowedDomains();
       final stealth = BrowserHelper.stealthScript;
@@ -258,6 +262,22 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
     _webViewController?.dispose();
     encerrarLeitor();
     super.dispose();
+  }
+
+  // Registra o que a página anotou (requisições com erro, erros de JS e
+  // navegações bloqueadas): é como investigamos falhas como "Erro ao carregar"
+  @override
+  Future<void> antesDeFechar() async {
+    final c = _webViewController;
+    if (!_kDebugLinuxBrowser || c == null) return;
+    try {
+      final diag = await c
+          .evaluateJavascript(BrowserHelper.scriptLerDiagnostico)
+          .timeout(const Duration(seconds: 2));
+      _log('diagnóstico da página', diag);
+    } catch (e) {
+      _log('diagnóstico indisponível', e);
+    }
   }
 
   void _onReload() {

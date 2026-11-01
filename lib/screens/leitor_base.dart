@@ -50,6 +50,10 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
   /// Mensagens de depuração; cada tela decide se e como registra.
   void logLeitor(String mensagem) {}
 
+  /// Chamado ao fechar, antes de sair da tela (ex.: registrar o diagnóstico da
+  /// página). Falhas aqui não impedem o fechamento.
+  Future<void> antesDeFechar() async {}
+
   void iniciarLeitor() {
     originHost = BrowserHelper.originHostFromUrl(urlInicial) ?? '';
     lastAllowedUrl = urlInicial;
@@ -260,6 +264,12 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
       } catch (_) {}
     } else {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+
+    try {
+      await antesDeFechar();
+    } catch (e) {
+      logLeitor('Falha antes de fechar: $e');
     }
 
     if (mounted) {

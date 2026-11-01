@@ -102,9 +102,34 @@ void main() {
       expect(js, contains('const AD_LIST = ["ravishwalnut.qpon"]'));
       expect(js, contains('"nexustoons.com"'));
       expect(js, contains('"leituramanga.net"'));
-      // Navigation API: pop-under por script é cancelado antes de sair da página
+      // Diagnóstico e bloqueio por script desligados por padrão
+      expect(js, contains('const DIAGNOSTICO = false;'));
+      expect(js, contains('const BLOQUEAR_NAVEGACAO = false;'));
+    });
+
+    test('bloqueio por script (Navigation API) só quando pedido', () async {
+      final js = await BrowserHelper.getAdBlockScript(
+        sessionOriginHost: 'nexustoons.com',
+        adDomains: const [],
+        allowedDomains: const [],
+        bloquearNavegacaoPorScript: true,
+      );
+
+      expect(js, contains('const BLOQUEAR_NAVEGACAO = true;'));
       expect(js, contains("addEventListener('navigate'"));
       expect(js, contains('e.preventDefault()'));
+    });
+
+    test('modo diagnóstico liga a anotação de falhas na página', () async {
+      final js = await BrowserHelper.getAdBlockScript(
+        sessionOriginHost: 'nexustoons.com',
+        adDomains: const [],
+        allowedDomains: const [],
+        diagnostico: true,
+      );
+
+      expect(js, contains('const DIAGNOSTICO = true;'));
+      expect(js, contains('window.__mangaDiag'));
     });
   });
 
