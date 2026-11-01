@@ -17,7 +17,7 @@ flutter run -d windows
 flutter test                         # todos os testes
 flutter test test/widget_test.dart   # um arquivo
 flutter test --plain-name "nome do teste"
-build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/
+build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/ (exige árvore Git limpa)
 ```
 
 - `test/widget_test.dart` ainda é o teste de contador do template do Flutter e **não** corresponde ao app (falha). Não use `flutter test` como prova de que algo funciona até existirem testes reais.
@@ -26,15 +26,15 @@ build_installer.cmd                  # release completo: Windows + APK + Linux (
 ## Linux via WSL (distro `Ubuntu`)
 
 - Use sempre `~/flutter/bin/flutter`. Num `wsl -d Ubuntu -- bash -c "..."` não interativo, `flutter` puro aponta para o SDK do **Windows** (`/mnt/c/tools/flutter`).
-- `~/StudioProjects/manga_manager` é um clone Git do mesmo repositório. Para testar no Linux: commit + push no Windows e depois `git pull` nesse clone.
-- `~/manga_manager` é uma cópia antiga **sem Git**, mas o passo 3 do `build_installer.cmd` compila o pacote Linux a partir dela. Portanto o `.tar.gz` Linux gerado pelo script pode sair desatualizado.
+- `~/StudioProjects/manga_manager` é o clone Git usado no Linux (o usuário abre esse clone no VS Code via Remote WSL). Ele tem o remote `win`, que aponta para o repositório do Windows. Para testar no Linux basta commitar no Windows e rodar `git pull --ff-only win <branch>` no clone, sem precisar de push para o GitHub. O código só passa de um lado para o outro pelo Git, nunca por cópia.
+- O passo 3 do `build_installer.cmd` chama o `build_linux.sh`, que sincroniza esse clone com o commit atual do Windows, falha se houver divergência ou alteração pendente, compila e grava o pacote direto em `dist\`. O `build_installer.cmd` também recusa rodar com alterações não commitadas, para que os três pacotes saiam do mesmo commit.
 - Executar no Linux: `flutter run -d linux --no-enable-impeller` com `GDK_BACKEND=x11` (configuração do `.vscode/launch.json`).
 - Build: `~/flutter/bin/flutter build linux --release` gera `build/linux/x64/release/bundle`, que é empacotado como `MangaManager_Linux_x64.tar.gz`.
 
 Exemplo a partir do Windows:
 
 ```bash
-wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull && ~/flutter/bin/flutter build linux --release'
+wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull --ff-only win main && ~/flutter/bin/flutter build linux --release'
 ```
 
 ## Arquitetura
@@ -62,4 +62,5 @@ wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull && ~/flu
 ## Armadilhas
 
 - `installer.nsi` está em **Windows-1252**, não em UTF-8, e as ferramentas Edit/Write recusam o arquivo. Edite preservando a codificação, por exemplo com PowerShell e `[System.Text.Encoding]::GetEncoding(1252)`.
+- Scripts `.sh` precisam de fim de linha LF, garantido pelo `.gitattributes`. Com CRLF o bash do WSL falha.
 - `.vscode/` e `dist/` estão no `.gitignore`.

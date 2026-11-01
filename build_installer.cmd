@@ -12,6 +12,16 @@ chcp %UTF8_CODEPAGE% >nul
 :: Data: 07/09/2026
 :: ==============================================================================
 
+echo [0/5] Conferindo o repositorio Git...
+:: Os 3 pacotes precisam sair do MESMO commit: nada pode estar pendente
+for /f "delims=" %%s in ('git status --porcelain') do goto :error_dirty
+for /f "delims=" %%h in ('git rev-parse HEAD') do set "GIT_COMMIT=%%h"
+for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD') do set "GIT_BRANCH=%%b"
+if not defined GIT_COMMIT goto :error_git
+if "!GIT_BRANCH!"=="HEAD" goto :error_git
+echo Commit: !GIT_COMMIT:~0,7! - branch !GIT_BRANCH!
+
+echo.
 echo [1/5] Iniciando build do Flutter (Windows)...
 call flutter.bat build windows --release
 if not exist "build\windows\x64\runner\Release" goto :error_win
@@ -23,11 +33,11 @@ if not exist "build\app\outputs\flutter-apk\app-release.apk" goto :error_android
 
 echo.
 echo [3/5] Iniciando build do Flutter (Linux via WSL)...
-:: S024: Separado em duas chamadas wsl para reduzir a complexidade da linha
-wsl -d Ubuntu bash -c "cd ~/manga_manager && export PATH=\$HOME/flutter/bin:\$PATH && flutter build linux --release"
-if %ERRORLEVEL% NEQ 0 goto :error_linux
-
-wsl -d Ubuntu bash -c "cd ~/manga_manager && mkdir -p dist && tar -czf dist/MangaManager_Linux_x64.tar.gz -C build/linux/x64/release bundle"
+:: Compila no clone Git do WSL sincronizado com este commit e grava o pacote
+:: direto em dist\ (detalhes em build_linux.sh)
+for /f "tokens=* delims=" %%i in ('wsl -d Ubuntu wslpath -u "%CD%"') do set "WSL_PATH=%%i"
+if not defined WSL_PATH goto :error_linux
+wsl -d Ubuntu bash "!WSL_PATH!/build_linux.sh" "!GIT_COMMIT!" "!GIT_BRANCH!" "!WSL_PATH!/dist"
 if %ERRORLEVEL% NEQ 0 goto :error_linux
 
 echo.
@@ -69,22 +79,26 @@ if exist "build\app\outputs\flutter-apk\app-release.apk" (
     )
 )
 
-:: Copiar o pacote Linux gerado no WSL para a pasta dist dinamicamente
-for /f "tokens=* delims=" %%i in ('wsl wslpath -u "%CD%"') do set "WSL_PATH=%%i"
-
-:: SEC013: Variavel enviada como argumento seguro ($0) para o bash
-wsl -d Ubuntu bash -c "cp ~/manga_manager/dist/MangaManager_Linux_x64.tar.gz \"$0/dist/\"" "%WSL_PATH%" 2>nul
-
 echo.
 echo ==================================================
 echo Processo concluido com sucesso!
 echo Arquivos disponiveis na pasta: dist\
 echo - Versao:  !APP_VERSION!
+echo - Commit:  !GIT_COMMIT:~0,7!
 echo - Windows: MangaManager_Setup.exe
 echo - Android: MangaManager.apk
 echo - Linux:   MangaManager_Linux_x64.tar.gz
 echo ==================================================
 goto :success
+
+:error_dirty
+echo ERRO: Ha alteracoes nao commitadas. Faca o commit antes de gerar o release,
+echo       para que Windows, Android e Linux saiam do mesmo codigo.
+goto :fail
+
+:error_git
+echo ERRO: Nao foi possivel ler o commit/branch atual (git no PATH? HEAD destacado?).
+goto :fail
 
 :error_win
 echo ERRO: O build Windows falhou!

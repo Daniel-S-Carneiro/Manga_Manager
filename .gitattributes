@@ -1,0 +1,2 @@
+# Scripts executados no WSL precisam de LF (com CRLF o bash falha)
+*.sh text eol=lf
