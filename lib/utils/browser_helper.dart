@@ -204,6 +204,34 @@ class BrowserHelper {
     }
   }
 
+  /// Entrada com ponto casa por RÓTULOS inteiros do host ('doubleclick.net'
+  /// pega 'ad.doubleclick.net', mas 'adjust.com' não pega 'cadjust.com';
+  /// 'pagead2.googlesyndication' pega 'pagead2.googlesyndication.com').
+  /// Entrada sem ponto é palavra-chave e casa por trecho do host.
+  /// Mesma regra do `hostCasa` do script de adblock.
+  static bool hostCasaComEntrada(String host, String entrada) {
+    if (entrada.contains('.')) return '.$host.'.contains('.$entrada.');
+    return host.contains(entrada);
+  }
+
+  /// URL de anúncio pela lista: entrada com "/" casa na URL inteira, as
+  /// demais pelo host ([hostCasaComEntrada]). Quem chama deve isentar antes o
+  /// site da sessão e os domínios permitidos.
+  static bool urlEhAnuncio(String url, Iterable<String> entradas) {
+    final s = url.toLowerCase();
+    final host = originHostFromUrl(url) ?? '';
+    for (final raw in entradas) {
+      final e = raw.trim().toLowerCase();
+      if (e.isEmpty) continue;
+      if (e.contains('/')) {
+        if (s.contains(e)) return true;
+      } else if (host.isNotEmpty && hostCasaComEntrada(host, e)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static String? originHostFromUrl(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null || uri.host.isEmpty) return null;
@@ -426,6 +454,9 @@ class BrowserHelper {
   /// página inteira para host não permitido. Só o Linux liga: o BrowserScreen
   /// já cancela pelo shouldOverrideUrlLoading. EM TESTE: suspeito de causar
   /// "Erro ao carregar o capítulo" no Nexus.
+  /// [bloquearElementosDeAnuncio]: recusa que a página insira `<script>` ou
+  /// `<iframe>` de domínio de anúncio (o anúncio nem roda). Essencial no
+  /// Linux, onde o CEF não bloqueia o download; no Windows é proteção extra.
   ///
   /// As listas vão para o JS como JSON e a comparação é feita pelo HOST
   /// (nada de regex interpolada, então entradas com "/" não quebram o script).
@@ -435,6 +466,7 @@ class BrowserHelper {
     List<String>? allowedDomains,
     bool diagnostico = false,
     bool bloquearNavegacaoPorScript = false,
+    bool bloquearElementosDeAnuncio = true,
   }) async {
     final ads = adDomains ?? await getAdDomains();
     final allowed = allowedDomains ?? await getAllowedDomains();
@@ -479,11 +511,13 @@ class BrowserHelper {
   // Diagnóstico (só quando o leitor pede): o app lê window.__mangaDiag ao fechar
   const DIAGNOSTICO = $diagnostico;
   const BLOQUEAR_NAVEGACAO = $bloquearNavegacaoPorScript;
+  const BLOQUEAR_ELEMENTOS = $bloquearElementosDeAnuncio;
   const DIAG = DIAGNOSTICO
-    ? (window.__mangaDiag = window.__mangaDiag || { bloqueios: [], http: [], erros: [] })
+    ? (window.__mangaDiag = window.__mangaDiag ||
+        { bloqueios: [], http: [], erros: [], elementos: [] })
     : null;
   function anotar(chave, msg) {
-    if (!DIAG || DIAG[chave].length >= 40) return;
+    if (!DIAG || !DIAG[chave] || DIAG[chave].length >= 40) return;
     DIAG[chave].push(new Date().toISOString().slice(11, 19) + ' ' + String(msg).slice(0, 300));
   }
 
@@ -512,30 +546,45 @@ class BrowserHelper {
     catch (_) { return ''; }
   }
 
-  // Entrada sem "/" casa por trecho do host; entrada com "/" casa na URL inteira
-  function isAd(url) {
-    const s = String(url || '').toLowerCase();
-    const h = hostOf(s);
-    for (let i = 0; i < AD_LIST.length; i++) {
-      const e = AD_LIST[i];
-      if (e.indexOf('/') >= 0) {
-        if (s.indexOf(e) >= 0) return true;
-      } else if (h && h.indexOf(e) >= 0) {
-        return true;
-      }
-    }
-    return false;
+  // Entrada com ponto casa por RÓTULOS inteiros do host: 'doubleclick.net'
+  // pega 'ad.doubleclick.net', mas 'adjust.com' não pega 'cadjust.com'.
+  // Entrada sem ponto é palavra-chave (trecho do host). Mesma regra de
+  // BrowserHelper.hostCasaComEntrada no Dart.
+  function hostCasa(h, e) {
+    if (e.indexOf('.') >= 0) return ('.' + h + '.').indexOf('.' + e + '.') >= 0;
+    return h.indexOf(e) >= 0;
   }
 
   // Entrada com ponto: host igual ou subdomínio; sem ponto: trecho do host
-  function isAllowedNav(url) {
-    const h = hostOf(url);
+  function isAllowedHost(h) {
     if (!h) return false;
     for (let i = 0; i < ALLOW_LIST.length; i++) {
       const d = ALLOW_LIST[i];
       if (d.indexOf('.') >= 0) {
         if (h === d || h.endsWith('.' + d)) return true;
       } else if (h.indexOf(d) >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isAllowedNav(url) {
+    return isAllowedHost(hostOf(url));
+  }
+
+  // O site da sessão e os domínios permitidos NUNCA são anúncio (protege os
+  // scripts e imagens do próprio site de uma entrada genérica da lista).
+  // Entrada com "/" casa na URL inteira.
+  function isAd(url) {
+    const s = String(url || '').toLowerCase();
+    const h = hostOf(s);
+    if (isAllowedHost(h)) return false;
+    for (let i = 0; i < AD_LIST.length; i++) {
+      const e = AD_LIST[i];
+      if (e.indexOf('/') >= 0) {
+        if (s.indexOf(e) >= 0) return true;
+      } else if (h && hostCasa(h, e)) {
         return true;
       }
     }
@@ -611,6 +660,109 @@ class BrowserHelper {
       if (isAd(url)) return false;
       return _beacon(url, data);
     };
+  }
+
+  // Scripts e quadros de anúncio inseridos pela página: a inserção é recusada,
+  // então o anúncio nem roda (o CEF do Linux não bloqueia o download).
+  // Cobre o src (propriedade e setAttribute), appendChild/insertBefore/append/
+  // prepend e um observador que remove o que escapar (ex.: iframe via
+  // innerHTML). Script escrito direto no HTML original continua passando.
+  if (BLOQUEAR_ELEMENTOS) {
+    try {
+      const ALVOS = { SCRIPT: true, IFRAME: true };
+      const ehAlvo = function(no) {
+        return !!(no && no.nodeType === 1 && ALVOS[no.tagName]);
+      };
+      const recusar = function(el, url) {
+        anotar('elementos', String(el.tagName).toLowerCase() + ' ' + url);
+      };
+      const srcDeAnuncio = function(el) {
+        const url = (el.getAttribute && el.getAttribute('src')) || '';
+        return (url && isAd(url)) ? url : '';
+      };
+      // Tira os anúncios de dentro de um elemento ou fragmento
+      const limparDescendentes = function(no) {
+        if (!no || !no.querySelectorAll) return;
+        const lista = no.querySelectorAll('script[src], iframe[src]');
+        for (let i = 0; i < lista.length; i++) {
+          const url = srcDeAnuncio(lista[i]);
+          if (url) { recusar(lista[i], url); lista[i].remove(); }
+        }
+      };
+      // true = o próprio nó é anúncio e não deve ser inserido
+      const recusarInsercao = function(no) {
+        if (!no) return false;
+        if (ehAlvo(no)) {
+          const url = srcDeAnuncio(no);
+          if (url) { recusar(no, url); return true; }
+          return false;
+        }
+        if (no.nodeType === 1 || no.nodeType === 11) limparDescendentes(no);
+        return false;
+      };
+
+      const protegerSrc = function(proto) {
+        const desc = proto && Object.getOwnPropertyDescriptor(proto, 'src');
+        if (!desc || !desc.set) return;
+        Object.defineProperty(proto, 'src', {
+          configurable: true,
+          enumerable: desc.enumerable,
+          get: desc.get,
+          set: function(valor) {
+            if (isAd(String(valor))) { recusar(this, String(valor)); return; }
+            desc.set.call(this, valor);
+          }
+        });
+      };
+      protegerSrc(window.HTMLScriptElement && HTMLScriptElement.prototype);
+      protegerSrc(window.HTMLIFrameElement && HTMLIFrameElement.prototype);
+
+      const _setAttribute = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function(nome, valor) {
+        if (ehAlvo(this) && String(nome).toLowerCase() === 'src' && isAd(String(valor))) {
+          recusar(this, String(valor));
+          return;
+        }
+        return _setAttribute.apply(this, arguments);
+      };
+
+      const _appendChild = Node.prototype.appendChild;
+      Node.prototype.appendChild = function(no) {
+        if (recusarInsercao(no)) return no;
+        return _appendChild.apply(this, arguments);
+      };
+      const _insertBefore = Node.prototype.insertBefore;
+      Node.prototype.insertBefore = function(no) {
+        if (recusarInsercao(no)) return no;
+        return _insertBefore.apply(this, arguments);
+      };
+      ['append', 'prepend'].forEach(function(metodo) {
+        const original = Element.prototype[metodo];
+        if (typeof original !== 'function') return;
+        Element.prototype[metodo] = function() {
+          const nos = [];
+          for (let i = 0; i < arguments.length; i++) {
+            if (!recusarInsercao(arguments[i])) nos.push(arguments[i]);
+          }
+          return original.apply(this, nos);
+        };
+      });
+
+      new MutationObserver(function(mutacoes) {
+        for (let i = 0; i < mutacoes.length; i++) {
+          const adicionados = mutacoes[i].addedNodes;
+          for (let j = 0; j < adicionados.length; j++) {
+            const no = adicionados[j];
+            if (ehAlvo(no)) {
+              const url = srcDeAnuncio(no);
+              if (url) { recusar(no, url); no.remove(); }
+            } else if (no.nodeType === 1) {
+              limparDescendentes(no);
+            }
+          }
+        }
+      }).observe(document, { childList: true, subtree: true });
+    } catch (_) {}
   }
 
   // Intercepta cliques abusivos na fase de captura (true)

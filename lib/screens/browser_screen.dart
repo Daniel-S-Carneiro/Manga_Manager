@@ -51,8 +51,7 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   InAppWebViewController? webViewController;
 
-  RegExp? _adHostRegex; // entradas sem "/": comparadas só com o host
-  RegExp? _adUrlRegex; // entradas com "/": comparadas com a URL inteira
+  List<String> _adDomains = BrowserHelper.defaultAdDomains;
   String _userAgent = '';
   List<UserScript> _initialUserScripts = const [];
   bool _bootstrapReady = false;
@@ -127,7 +126,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     } catch (e, st) {
       logLeitor('Falha ao ler listas de domínios: $e\n$st');
     }
-    _compilarRegexAnuncios(adDomains);
+    _adDomains = adDomains;
 
     // 3) Script de adblock (listas passadas por parâmetro: sem reler o banco)
     String adJs = '';
@@ -235,31 +234,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     return _fallbackUserAgent();
   }
 
-  void _compilarRegexAnuncios(List<String> adDomains) {
-    final hostEntries = <String>[];
-    final urlEntries = <String>[];
-
-    for (final raw in adDomains) {
-      final e = raw.trim().toLowerCase();
-      if (e.isEmpty) continue;
-      (e.contains('/') ? urlEntries : hostEntries).add(RegExp.escape(e));
-    }
-
-    _adHostRegex = hostEntries.isEmpty
-        ? null
-        : RegExp(hostEntries.join('|'), caseSensitive: false);
-    _adUrlRegex = urlEntries.isEmpty
-        ? null
-        : RegExp(urlEntries.join('|'), caseSensitive: false);
-  }
-
-  // Anúncio: compara só o HOST (ex.: 'adjust.com' não pega mais query string
-  // nem caminho); entradas com "/" continuam comparando a URL inteira.
+  // Anúncio pela mesma regra do script de adblock: o site da sessão e os
+  // domínios permitidos nunca são anúncio; entrada com ponto casa por rótulos
+  // inteiros do host ('adjust.com' não pega 'cadjust.com').
   bool _isAd(String url) {
-    if (url.isEmpty) return false;
-    final host = BrowserHelper.originHostFromUrl(url);
-    if (host != null && (_adHostRegex?.hasMatch(host) ?? false)) return true;
-    return _adUrlRegex?.hasMatch(url) ?? false;
+    if (url.isEmpty || urlPermitida(url)) return false;
+    return BrowserHelper.urlEhAnuncio(url, _adDomains);
   }
 
   String _fallbackUserAgent() {

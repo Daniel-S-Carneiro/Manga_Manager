@@ -68,6 +68,68 @@ void main() {
     });
   });
 
+  group('hostCasaComEntrada / urlEhAnuncio', () {
+    test('entrada com ponto casa por rótulos inteiros do host', () {
+      expect(
+        BrowserHelper.hostCasaComEntrada(
+          'ad.doubleclick.net',
+          'doubleclick.net',
+        ),
+        isTrue,
+      );
+      expect(
+        BrowserHelper.hostCasaComEntrada('doubleclick.net', 'doubleclick.net'),
+        isTrue,
+      );
+      expect(
+        BrowserHelper.hostCasaComEntrada(
+          'pagead2.googlesyndication.com',
+          'pagead2.googlesyndication',
+        ),
+        isTrue,
+      );
+    });
+
+    test('entrada genérica não pega domínio só parecido', () {
+      // Antes (trecho do host) 'adjust.com' pegava 'cadjust.com'
+      expect(
+        BrowserHelper.hostCasaComEntrada('cadjust.com', 'adjust.com'),
+        isFalse,
+      );
+      expect(
+        BrowserHelper.hostCasaComEntrada('a-ads.com.meusite.net', 'a-ads.co'),
+        isFalse,
+      );
+    });
+
+    test('entrada sem ponto continua sendo palavra-chave', () {
+      expect(
+        BrowserHelper.hostCasaComEntrada('x9.tcliktrc.com', 'tcliktrc'),
+        isTrue,
+      );
+    });
+
+    test('urlEhAnuncio: host pela regra acima e "/" na URL inteira', () {
+      const lista = ['ravishwalnut.qpon', 'exemplo.com/ads/'];
+      expect(
+        BrowserHelper.urlEhAnuncio('https://ravishwalnut.qpon/f/x', lista),
+        isTrue,
+      );
+      expect(
+        BrowserHelper.urlEhAnuncio('https://exemplo.com/ads/banner.js', lista),
+        isTrue,
+      );
+      expect(
+        BrowserHelper.urlEhAnuncio('https://exemplo.com/capitulo/1', lista),
+        isFalse,
+      );
+      expect(
+        BrowserHelper.urlEhAnuncio('https://nexustoons.com/api/x', lista),
+        isFalse,
+      );
+    });
+  });
+
   group('isSameOriginHost', () {
     test('mesmo host ou subdomínio', () {
       expect(
@@ -105,6 +167,8 @@ void main() {
       // Diagnóstico e bloqueio por script desligados por padrão
       expect(js, contains('const DIAGNOSTICO = false;'));
       expect(js, contains('const BLOQUEAR_NAVEGACAO = false;'));
+      // Bloqueio de scripts/quadros de anúncio ligado por padrão
+      expect(js, contains('const BLOQUEAR_ELEMENTOS = true;'));
     });
 
     test('bloqueio por script (Navigation API) só quando pedido', () async {
