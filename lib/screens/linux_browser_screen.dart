@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_cef/webview_cef.dart';
 
@@ -48,7 +49,9 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
   String? _voltandoPara;
   Timer? _verificarVolta;
 
-  static const bool _kDebugLinuxBrowser = true;
+  // Logs e diagnóstico da página só no modo debug; no release ficam
+  // desligados. Ponha true para investigar um build de release.
+  static const bool _kDebugLinuxBrowser = kDebugMode;
 
   void _log(String message, [Object? detail]) {
     if (!_kDebugLinuxBrowser) return;

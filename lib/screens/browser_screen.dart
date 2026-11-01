@@ -31,8 +31,10 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen>
     with LeitorBase<BrowserScreen> {
-  // Mantido true de propósito: interruptor manual de debug (inspeção + logs).
-  static const bool _isDebugMode = true;
+  // Logs, diagnóstico da página, inspeção (DevTools) e erro detalhado só no
+  // modo debug; no release ficam desligados. Ponha true para investigar um
+  // build de release.
+  static const bool _isDebugMode = kDebugMode;
 
   // Log interno do flutter_inappwebview (cada requisição, título e progresso,
   // ligado por padrão em debug): abafava o nosso. Ponha true só para

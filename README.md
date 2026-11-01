@@ -30,6 +30,7 @@
 - Abre o link do mangá dentro do app: WebView2 no Windows, Chromium (CEF) no Linux e WebView no Android.
 - Bloqueia anúncios, pop-ups e redirecionamentos, e mantém a navegação dentro do site do mangá.
 - Barra de controle flutuante (voltar, recarregar e tela cheia), na horizontal ou na vertical, que pode ser arrastada e lembra a posição.
+- Rolagem do mouse suave no computador, com distância por giro e suavidade ajustáveis pelo botão de mouse da barra.
 - Tela cheia com **F11**.
 - Ao fechar o leitor, o app identifica o capítulo pelo título ou pelo endereço da página e **pergunta** se você quer atualizar o link e o capítulo. Nada é gravado sem confirmação.
 
