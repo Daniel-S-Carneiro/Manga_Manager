@@ -98,7 +98,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     try {
       if (leitorDesktop && Platform.isWindows) {
         await _prepararWebViewEnvironmentWindows();
-        _userAgent = _fallbackUserAgent();
+        // Vazio = user agent do próprio WebView2 (Edge). Um UA fixo de outra
+        // versão contradiz os client hints (sec-ch-ua) e a proteção anti-robô
+        // dos sites desconfia: o Nexus passou a responder 503.
+        _userAgent = '';
       } else if (_useAndroidV2) {
         _userAgent = await _resolverUserAgentAndroid();
       } else {
@@ -111,7 +114,9 @@ class _BrowserScreenState extends State<BrowserScreen>
       }
     } catch (e, st) {
       logLeitor('Falha no ambiente/UA: $e\n$st');
-      _userAgent = _fallbackUserAgent();
+      _userAgent = (leitorDesktop && Platform.isWindows)
+          ? ''
+          : _fallbackUserAgent();
     }
 
     // 2) Listas de domínios
@@ -441,7 +446,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         preferredContentMode: leitorDesktop
             ? UserPreferredContentMode.DESKTOP
             : UserPreferredContentMode.MOBILE,
-        userAgent: _userAgent,
+        // null = user agent padrão do motor (no Windows, o do WebView2)
+        userAgent: _userAgent.isEmpty ? null : _userAgent,
         isInspectable: _isDebugMode,
         cacheEnabled: true,
         clearCache: false,

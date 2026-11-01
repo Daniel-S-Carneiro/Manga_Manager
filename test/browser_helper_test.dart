@@ -130,6 +130,11 @@ void main() {
 
       expect(js, contains('const DIAGNOSTICO = true;'));
       expect(js, contains('window.__mangaDiag'));
+      // Diz se a recusa veio da Cloudflare ou do servidor do site
+      expect(js, contains("cabecalho('cf-mitigated')"));
+      expect(js, contains('DESAFIO CLOUDFLARE'));
+      // A string Dart não é "raw": o JS precisa receber \s, e não só "s"
+      expect(js, contains(r'.replace(/\s+/g'));
     });
   });
 

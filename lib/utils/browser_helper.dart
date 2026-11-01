@@ -486,6 +486,17 @@ class BrowserHelper {
     if (!DIAG || DIAG[chave].length >= 40) return;
     DIAG[chave].push(new Date().toISOString().slice(11, 19) + ' ' + String(msg).slice(0, 300));
   }
+
+  // Quem recusou a requisição: desafio anti-robô da Cloudflare (cabeçalho
+  // cf-mitigated ou página "Just a moment") ou o próprio servidor do site
+  function detalheDaFalha(cabecalho, corpo) {
+    const mitigado = cabecalho('cf-mitigated');
+    const desafio = mitigado || /just a moment|cf-chl|challenge-platform/i.test(corpo || '');
+    return ' [server=' + (cabecalho('server') || '?') +
+      (mitigado ? ', cf-mitigated=' + mitigado : '') +
+      (desafio ? ', DESAFIO CLOUDFLARE' : '') +
+      ', corpo=' + String(corpo || '').replace(/\\s+/g, ' ').slice(0, 80) + ']';
+  }
   if (DIAG) {
     window.addEventListener('error', function(e) {
       anotar('erros', (e.message || 'erro') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
@@ -546,7 +557,15 @@ class BrowserHelper {
       const resposta = _fetch.apply(this, arguments);
       if (!DIAG) return resposta;
       return resposta.then(function(r) {
-        if (r && !r.ok) anotar('http', r.status + ' ' + url);
+        if (r && !r.ok) {
+          const cab = function(n) { try { return r.headers.get(n); } catch (_) { return null; } };
+          // Lê uma cópia do corpo: a resposta original segue intacta para o site
+          r.clone().text().then(function(corpo) {
+            anotar('http', r.status + ' ' + url + detalheDaFalha(cab, corpo));
+          }, function() {
+            anotar('http', r.status + ' ' + url + detalheDaFalha(cab, ''));
+          });
+        }
         return r;
       }, function(err) {
         anotar('http', 'falhou ' + url + ' (' + err + ')');
@@ -572,7 +591,12 @@ class BrowserHelper {
           const xhr = this;
           xhr.addEventListener('loadend', function() {
             if (xhr.status === 0 || xhr.status >= 400) {
-              anotar('http', xhr.status + ' ' + xhr.__mangaUrl);
+              const cab = function(n) { try { return xhr.getResponseHeader(n); } catch (_) { return null; } };
+              let corpo = '';
+              try {
+                if (xhr.responseType === '' || xhr.responseType === 'text') corpo = xhr.responseText;
+              } catch (_) {}
+              anotar('http', xhr.status + ' ' + xhr.__mangaUrl + detalheDaFalha(cab, corpo));
             }
           });
         }

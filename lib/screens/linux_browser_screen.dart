@@ -38,6 +38,11 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
 
   Timer? _loadTimeout;
 
+  // Volta de um anúncio que tomou a página: primeiro pelo histórico (pode
+  // restaurar o capítulo sem recarregar); se não voltar a tempo, recarrega
+  String? _voltandoPara;
+  Timer? _verificarVolta;
+
   static const bool _kDebugLinuxBrowser = true;
 
   void _log(String message, [Object? detail]) {
@@ -83,7 +88,10 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
     _initStarted = true;
 
     try {
-      final userAgent = await BrowserHelper.getUserAgent();
+      // null = user agent do próprio CEF (Chromium 149). O padrão antigo
+      // (Chrome/131) contradizia os client hints e a proteção anti-robô dos
+      // sites desconfiava. Um UA salvo pelo usuário continua valendo.
+      final userAgent = await BrowserHelper.getCustomUserAgent();
       _adBlockScriptCache = await BrowserHelper.getAdBlockScript(
         sessionOriginHost: originHost,
         // Com os logs ligados, a página anota falhas para o log ao fechar
@@ -95,7 +103,7 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
       final stealth = BrowserHelper.stealthScript;
 
       _log('config', {
-        'userAgent': userAgent,
+        'userAgent': userAgent ?? '(padrão do CEF)',
         'originHost': originHost,
         'allowedDomains': allowedDomains,
         'adBlockScriptLen': _adBlockScriptCache.length,
@@ -126,6 +134,21 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
             aplicarCapituloDoTexto(title);
           },
           onUrlChanged: (url) {
+            // Voltando de um anúncio pelo histórico: só o capítulo encerra
+            final esperado = _voltandoPara;
+            if (esperado != null) {
+              if (url == esperado) {
+                _verificarVolta?.cancel();
+                _voltandoPara = null;
+                _redirecting = false;
+                registrarUrl(url);
+                _log('voltou pelo histórico', url);
+              } else {
+                _log('voltando pelo histórico, ignorando', url);
+              }
+              return;
+            }
+
             final allowed = registrarUrl(url);
             _log('EVENT onUrlChanged', {
               'url': url,
@@ -151,15 +174,11 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
               return;
             }
 
-            _log('BLOQUEANDO main-frame ad → voltando', {
+            _log('BLOQUEANDO main-frame ad → voltando pelo histórico', {
               'from': url,
               'to': backTo,
             });
-            _redirecting = true;
-            controller.loadUrl(backTo).whenComplete(() {
-              _redirecting = false;
-              _log('redirect concluído');
-            });
+            _voltarDoAnuncio(controller, backTo);
           },
           onLoadStart: (c, url) {
             _log('EVENT onLoadStart', url);
@@ -259,9 +278,35 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
   void dispose() {
     _log('dispose', {'currentUrl': currentUrl, 'lastAllowed': lastAllowedUrl});
     _loadTimeout?.cancel();
+    _verificarVolta?.cancel();
     _webViewController?.dispose();
     encerrarLeitor();
     super.dispose();
+  }
+
+  // O anúncio costuma vir de um iframe de outro domínio, que o bloqueio por
+  // script não consegue cancelar. Voltar pelo histórico pode restaurar o
+  // capítulo da memória (sem recarregar); se o histórico não trouxer de volta
+  // o capítulo em 2,5 s (sem histórico ou anúncio com location.replace),
+  // recarrega a URL como antes.
+  void _voltarDoAnuncio(WebViewController controller, String destino) {
+    _redirecting = true;
+    _voltandoPara = destino;
+    unawaited(
+      controller.goBack().catchError((Object e) {
+        _log('goBack falhou', e);
+      }),
+    );
+    _verificarVolta?.cancel();
+    _verificarVolta = Timer(const Duration(milliseconds: 2500), () {
+      if (!mounted || _voltandoPara == null) return;
+      _log('histórico não voltou ao capítulo → recarregando', destino);
+      _voltandoPara = null;
+      controller.loadUrl(destino).whenComplete(() {
+        _redirecting = false;
+        _log('redirect concluído');
+      });
+    });
   }
 
   // Registra o que a página anotou (requisições com erro, erros de JS e
