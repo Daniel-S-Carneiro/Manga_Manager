@@ -8,16 +8,19 @@ import 'package:window_manager/window_manager.dart';
 
 import '../database/db_helper.dart';
 import '../utils/browser_helper.dart';
+import '../utils/config_rolagem.dart';
 import '../widgets/floating_control_bar.dart';
+import '../widgets/painel_rolagem.dart';
 
 /// Comportamento comum aos leitores, independente do motor do navegador
 /// (BrowserScreen com flutter_inappwebview; LinuxBrowserScreen com webview_cef):
-/// URL permitida, capítulo detectado, barra flutuante, tela cheia (F11) e o
-/// resultado devolvido ao fechar (`{'url', 'capitulo'}`).
+/// URL permitida, capítulo detectado, barra flutuante, rolagem do mouse, tela
+/// cheia (F11) e o resultado devolvido ao fechar (`{'url', 'capitulo'}`).
 ///
 /// A tela chama [iniciarLeitor] no initState e [encerrarLeitor] no dispose, e
 /// liga os eventos do seu navegador a [registrarUrl], [aplicarCapituloDoTexto]
-/// e [detectarCapituloDaPagina].
+/// e [detectarCapituloDaPagina]. Para a rolagem, informa [fatorBaseRolagem],
+/// injeta o [scriptRolagem] e implementa [aplicarRolagem].
 mixin LeitorBase<T extends StatefulWidget> on State<T> {
   /// URL com que o leitor foi aberto.
   String get urlInicial;
@@ -30,6 +33,11 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
   final ValueNotifier<double> posTop = ValueNotifier<double>(20.0);
   final ValueNotifier<double> posLeft = ValueNotifier<double>(20.0);
   final ValueNotifier<bool> isVertical = ValueNotifier<bool>(false);
+
+  // Rolagem do mouse (painel aberto pela barra; só desktop)
+  final ValueNotifier<ConfigRolagem> configRolagem =
+      ValueNotifier<ConfigRolagem>(ConfigRolagem.padrao);
+  final ValueNotifier<bool> painelRolagemAberto = ValueNotifier<bool>(false);
 
   /// Host da URL inicial: navegar dentro dele (ou de um subdomínio) é sempre
   /// permitido.
@@ -54,6 +62,15 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
   /// página). Falhas aqui não impedem o fechamento.
   Future<void> antesDeFechar() async {}
 
+  /// Quanto o script de rolagem multiplica o giro que a página recebe, para
+  /// desfazer o exagero do plugin (ver [BrowserHelper.scriptRolagem]). Cada
+  /// tela informa o do seu motor.
+  double get fatorBaseRolagem => 1.0;
+
+  /// Aplica [script] (o [scriptRolagem] atual) na página aberta e nas
+  /// próximas. Cada tela liga ao seu navegador.
+  Future<void> aplicarRolagem(String script) async {}
+
   void iniciarLeitor() {
     originHost = BrowserHelper.originHostFromUrl(urlInicial) ?? '';
     lastAllowedUrl = urlInicial;
@@ -74,6 +91,8 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
     posTop.dispose();
     posLeft.dispose();
     isVertical.dispose();
+    configRolagem.dispose();
+    painelRolagemAberto.dispose();
   }
 
   // ---------------------------------------------------------------------------
@@ -208,6 +227,80 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
       onReload: onRecarregar,
       onFullScreen: alternarTelaCheia,
       onToggleOrientation: alternarOrientacaoBarra,
+      onScrollSettings: leitorDesktop ? alternarPainelRolagem : null,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // ROLAGEM DO MOUSE
+  // ---------------------------------------------------------------------------
+
+  /// Script de rolagem com a configuração atual.
+  String get scriptRolagem => BrowserHelper.scriptRolagem(
+    configRolagem.value,
+    fatorBase: fatorBaseRolagem,
+  );
+
+  /// Lê a configuração salva; a tela chama antes de montar os scripts.
+  Future<void> carregarConfiguracoesRolagem() async {
+    try {
+      final config = await ConfigRolagem.carregar();
+      if (!mounted) return;
+      configRolagem.value = config;
+      logLeitor(
+        'Rolagem: $config, fator base '
+        '${fatorBaseRolagem.toStringAsFixed(3)}',
+      );
+    } catch (e) {
+      logLeitor('Erro ao carregar config da rolagem: $e');
+    }
+  }
+
+  /// Configuração nova vinda do painel: vale na hora, na página aberta e nas
+  /// próximas, e com [salvar] fica gravada para os outros capítulos.
+  Future<void> mudarRolagem(ConfigRolagem nova, {bool salvar = true}) async {
+    configRolagem.value = nova;
+    logLeitor('Rolagem alterada: $nova');
+    try {
+      await aplicarRolagem(scriptRolagem);
+    } catch (e) {
+      logLeitor('Falha ao aplicar a rolagem: $e');
+    }
+    if (!salvar) return;
+    try {
+      await nova.salvar();
+    } catch (e) {
+      logLeitor('Erro ao salvar a rolagem: $e');
+    }
+  }
+
+  void alternarPainelRolagem() {
+    painelRolagemAberto.value = !painelRolagemAberto.value;
+  }
+
+  /// Painel da rolagem, do lado oposto ao da barra para não cobrir os botões.
+  /// Fica no Stack da tela, junto da [barraDeControle].
+  Widget painelDeRolagem({required Size tamanhoTela}) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([painelRolagemAberto, posTop]),
+      builder: (context, _) {
+        if (!painelRolagemAberto.value) return const SizedBox.shrink();
+        final barraEmCima = posTop.value < tamanhoTela.height / 2;
+        return Positioned(
+          left: 0,
+          right: 0,
+          top: barraEmCima ? null : 16,
+          bottom: barraEmCima ? 16 : null,
+          child: Center(
+            child: PainelRolagem(
+              config: configRolagem,
+              onAlterando: (c) => configRolagem.value = c,
+              onConfirmar: (c) => unawaited(mudarRolagem(c)),
+              onFechar: () => painelRolagemAberto.value = false,
+            ),
+          ),
+        );
+      },
     );
   }
 

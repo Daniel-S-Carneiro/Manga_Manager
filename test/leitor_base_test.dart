@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:manga_manager/screens/leitor_base.dart';
 import 'package:manga_manager/utils/browser_helper.dart';
+import 'package:manga_manager/utils/config_rolagem.dart';
+import 'package:manga_manager/widgets/painel_rolagem.dart';
 
 /// Tela mínima com a base comum dos leitores, sem motor de navegador.
 class _LeitorFalso extends StatefulWidget {
@@ -35,12 +37,25 @@ class _LeitorFalsoState extends State<_LeitorFalso>
   }
 
   int chamadasAntesDeFechar = 0;
+  final List<String> scriptsDeRolagem = [];
 
   @override
   Future<void> antesDeFechar() async => chamadasAntesDeFechar++;
 
   @override
-  Widget build(BuildContext context) => const SizedBox.expand();
+  double get fatorBaseRolagem => 0.5;
+
+  @override
+  Future<void> aplicarRolagem(String script) async =>
+      scriptsDeRolagem.add(script);
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      const SizedBox.expand(),
+      painelDeRolagem(tamanhoTela: MediaQuery.sizeOf(context)),
+    ],
+  );
 }
 
 void main() {
@@ -209,4 +224,101 @@ void main() {
       expect(leitor.chamadasAntesDeFechar, 1);
     });
   });
+
+  group('rolagem do mouse', () {
+    testWidgets('mudar aplica na página com o fator base da tela', (
+      tester,
+    ) async {
+      final leitor = await montar(tester);
+      const nova = ConfigRolagem(ativa: true, intensidade: 50, suavidade: 2);
+
+      await leitor.mudarRolagem(nova, salvar: false);
+
+      expect(leitor.configRolagem.value, nova);
+      expect(
+        leitor.scriptsDeRolagem.single,
+        BrowserHelper.scriptRolagem(nova, fatorBase: 0.5),
+      );
+      expect(
+        leitor.scriptsDeRolagem.single,
+        contains('"base":0.5,"intensidade":0.5,"tau":50'),
+      );
+    });
+
+    testWidgets('falha ao aplicar não derruba a tela', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: _LeitorQueFalha(url: urlInicial)),
+      );
+      final leitor = tester.state<_LeitorQueFalhaState>(
+        find.byType(_LeitorQueFalha),
+      );
+      const nova = ConfigRolagem(ativa: false, intensidade: 100, suavidade: 4);
+
+      await leitor.mudarRolagem(nova, salvar: false);
+      expect(leitor.configRolagem.value, nova);
+    });
+
+    testWidgets('painel abre pela barra, fecha no X e evita a barra', (
+      tester,
+    ) async {
+      final leitor = await montar(tester);
+      expect(find.byType(PainelRolagem), findsNothing);
+
+      leitor.alternarPainelRolagem();
+      await tester.pump();
+      expect(find.byType(PainelRolagem), findsOneWidget);
+
+      // Barra em cima (padrão): painel embaixo
+      final tela = tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(
+        tester.getBottomLeft(find.byType(PainelRolagem)).dy,
+        tela.height - 16,
+      );
+
+      // Barra embaixo: painel em cima
+      leitor.posTop.value = tela.height - 60;
+      await tester.pump();
+      expect(tester.getTopLeft(find.byType(PainelRolagem)).dy, 16);
+
+      await tester.tap(find.byTooltip('Fechar'));
+      await tester.pump();
+      expect(find.byType(PainelRolagem), findsNothing);
+      expect(leitor.painelRolagemAberto.value, isFalse);
+    });
+  });
+}
+
+/// Leitor cujo navegador recusa o script (ex.: página ainda carregando).
+class _LeitorQueFalha extends StatefulWidget {
+  const _LeitorQueFalha({required this.url});
+
+  final String url;
+
+  @override
+  State<_LeitorQueFalha> createState() => _LeitorQueFalhaState();
+}
+
+class _LeitorQueFalhaState extends State<_LeitorQueFalha>
+    with LeitorBase<_LeitorQueFalha> {
+  @override
+  String get urlInicial => widget.url;
+
+  @override
+  void initState() {
+    super.initState();
+    iniciarLeitor();
+  }
+
+  @override
+  void dispose() {
+    encerrarLeitor();
+    super.dispose();
+  }
+
+  @override
+  Future<void> aplicarRolagem(String script) async =>
+      throw Exception('navegador indisponível');
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
 }

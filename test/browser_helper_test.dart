@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:manga_manager/utils/browser_helper.dart';
+import 'package:manga_manager/utils/config_rolagem.dart';
 
 void main() {
   group('hostMatchesAllowed', () {
@@ -199,6 +200,62 @@ void main() {
       expect(js, contains('DESAFIO CLOUDFLARE'));
       // A string Dart não é "raw": o JS precisa receber \s, e não só "s"
       expect(js, contains(r'.replace(/\s+/g'));
+    });
+  });
+
+  group('scriptRolagem', () {
+    test('leva a configuração como JSON, com o fator base à parte', () {
+      final js = BrowserHelper.scriptRolagem(
+        const ConfigRolagem(ativa: true, intensidade: 60, suavidade: 4),
+        fatorBase: 0.2,
+      );
+
+      expect(
+        js,
+        contains(
+          'var CONFIG = {"ativa":true,"base":0.2,"intensidade":0.6,"tau":100};',
+        ),
+      );
+      expect(js, isNot(contains('__CONFIG__')));
+    });
+
+    test('rodar de novo na página só troca a configuração', () {
+      final js = BrowserHelper.scriptRolagem(
+        ConfigRolagem.padrao,
+        fatorBase: 1,
+      );
+
+      expect(
+        js,
+        contains(
+          'if (window.__mangaRolagem) { window.__mangaRolagem.configurar(CONFIG); return; }',
+        ),
+      );
+    });
+
+    test('precisa poder cancelar a rolagem e respeita zoom e página', () {
+      final js = BrowserHelper.scriptRolagem(
+        ConfigRolagem.padrao,
+        fatorBase: 1,
+      );
+
+      // Sem passive: false o preventDefault da roda é ignorado
+      expect(
+        js,
+        contains("addEventListener('wheel', aoGirar, { passive: false })"),
+      );
+      expect(js, contains('e.defaultPrevented || e.ctrlKey'));
+      expect(js, contains("behavior: 'instant'"));
+    });
+
+    test('desligada continua instalável e só fica inativa', () {
+      final js = BrowserHelper.scriptRolagem(
+        ConfigRolagem.padrao.copyWith(ativa: false, suavidade: 0),
+        fatorBase: 100 / 530,
+      );
+
+      expect(js, contains('"ativa":false'));
+      expect(js, contains('"tau":0'));
     });
   });
 

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../database/db_helper.dart';
+import 'config_rolagem.dart';
 
 /// UA, adblock e stealth compartilhados.
 /// Padrão: lê SQLite primeiro (offline); opcionalmente sincroniza remoto.
@@ -814,6 +815,192 @@ class BrowserHelper {
 })();
 ''';
   }
+
+  // ---------------------------------------------------------------------------
+  // ROLAGEM DO MOUSE (JS)
+  // ---------------------------------------------------------------------------
+
+  /// Rolagem do mouse com distância e suavidade ajustáveis (leitor desktop).
+  ///
+  /// Os plugins entregam ao navegador um giro da roda já multiplicado, por
+  /// isso a página "pula" muito mais que num navegador comum:
+  /// - flutter_inappwebview_windows 0.6.0 (`InAppWebView::sendScroll`)
+  ///   multiplica por 6 o delta do Flutter (100 por giro, com 3 linhas por
+  ///   giro no Windows): a página recebe 600/120 = 5 giros, ~500 px;
+  /// - webview_cef 0.6.2 (`WebviewHandler::sendScrollEvent`) multiplica por
+  ///   10 o delta do Flutter no Linux (53 por giro): ~530 px.
+  ///
+  /// [fatorBase] desfaz esse exagero (cada tela informa o do seu plugin), para
+  /// que intensidade 100% fique em ~100 px por giro. Se um plugin mudar,
+  /// confira os `deltas` de `rolagem` no diagnóstico da página.
+  ///
+  /// Rodar de novo na mesma página só troca a configuração. Não mexe em
+  /// Ctrl/Shift + roda, na rolagem horizontal, no que a própria página já
+  /// tratou (ex.: carrossel), na página trancada (janela de aviso aberta) nem
+  /// quando nada pode rolar naquela direção: aí o navegador faz o de sempre.
+  static String scriptRolagem(
+    ConfigRolagem config, {
+    required double fatorBase,
+  }) {
+    final cfg = jsonEncode({
+      'ativa': config.ativa,
+      'base': fatorBase,
+      'intensidade': config.intensidade / 100,
+      'tau': config.tauMs,
+    });
+    return _scriptRolagemModelo.replaceFirst('__CONFIG__', cfg);
+  }
+
+  // String "raw": o JS chega igual ao que está escrito aqui
+  static const String _scriptRolagemModelo = r'''
+(function() {
+  var CONFIG = __CONFIG__;
+  if (window.__mangaRolagem) { window.__mangaRolagem.configurar(CONFIG); return; }
+  var cfg = CONFIG;
+
+  // Deslize atual: elemento que rola, posição (com fração) e destino.
+  // ultimaEscrita percebe quando outra coisa rolou o elemento.
+  var alvo = null, posicao = 0, destino = 0, ultimaEscrita = 0;
+  var animando = false, pedido = 0, ultimoQuadro = 0, parado = 0;
+  var travados = typeof WeakSet === 'function' ? new WeakSet() : null;
+
+  function raiz() { return document.scrollingElement || document.documentElement; }
+  function maximo(el) { return Math.max(0, el.scrollHeight - el.clientHeight); }
+  function overflowY(el) { return getComputedStyle(el).overflowY; }
+  function temEspaco(el, dy) {
+    return dy > 0 ? el.scrollTop < maximo(el) - 0.5 : el.scrollTop > 0.5;
+  }
+
+  // Elemento que rola sozinho: overflow auto/scroll e conteúdo maior que a
+  // caixa. O body com o html "visible" passa a rolagem para a página.
+  function rolavel(el) {
+    if (el.scrollHeight <= el.clientHeight + 1) return false;
+    var oy = overflowY(el);
+    if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') return false;
+    if (el === document.body && overflowY(document.documentElement) === 'visible') return false;
+    return true;
+  }
+
+  // A página trancou a rolagem (ex.: janela de aviso aberta): não força
+  function paginaRola() {
+    var oy = overflowY(document.documentElement);
+    if (oy === 'visible' && document.body) oy = overflowY(document.body);
+    return oy !== 'hidden' && oy !== 'clip';
+  }
+
+  // Do elemento sob o mouse para cima, o primeiro que ainda rola nessa
+  // direção (como o navegador encadeia a rolagem); senão, a página
+  function acharAlvo(e, dy) {
+    var r = raiz();
+    if (!r) return null;
+    var caminho = e.composedPath ? e.composedPath() : [];
+    for (var i = 0; i < caminho.length; i++) {
+      var el = caminho[i];
+      if (el === r) break;
+      if (!el || el.nodeType !== 1 || (travados && travados.has(el))) continue;
+      if (rolavel(el) && temEspaco(el, dy)) return el;
+    }
+    if (travados && travados.has(r)) return null;
+    return paginaRola() && temEspaco(r, dy) ? r : null;
+  }
+
+  function escrever(v) {
+    try { alvo.scrollTo({ top: v, behavior: 'instant' }); }
+    catch (_) { alvo.scrollTop = v; }
+    ultimaEscrita = alvo.scrollTop;
+  }
+
+  function parar() {
+    if (pedido) cancelAnimationFrame(pedido);
+    animando = false; pedido = 0; ultimoQuadro = 0; parado = 0;
+  }
+
+  function quadro(t) {
+    pedido = 0;
+    if (!animando || !alvo) return;
+    // Outra coisa rolou (barra de rolagem, teclado, a própria página): solta
+    if (Math.abs(alvo.scrollTop - ultimaEscrita) > 3) { parar(); return; }
+    var dt = ultimoQuadro ? Math.min(Math.max(t - ultimoQuadro, 0), 100) : 16;
+    ultimoQuadro = t;
+    var max = maximo(alvo);
+    if (destino > max) destino = max;
+    if (destino < 0) destino = 0;
+    // Percorre uma fração do que falta, pelo tempo do quadro (suave em 60 ou 144 Hz)
+    var k = cfg.tau > 0 ? 1 - Math.exp(-dt / cfg.tau) : 1;
+    posicao += (destino - posicao) * k;
+    if (Math.abs(destino - posicao) < 0.5) posicao = destino;
+    var antes = alvo.scrollTop;
+    escrever(posicao);
+    // Vários quadros sem sair do lugar, longe do destino: algo impede
+    // (ex.: scroll-snap). Esse elemento fica com o navegador.
+    if (Math.abs(alvo.scrollTop - antes) < 0.01 && Math.abs(destino - alvo.scrollTop) > 2) {
+      if (++parado >= 10) {
+        if (travados) travados.add(alvo);
+        parar();
+        return;
+      }
+    } else {
+      parado = 0;
+    }
+    if (posicao === destino) parar();
+    else pedido = requestAnimationFrame(quadro);
+  }
+
+  function aoGirar(e) {
+    var dy = e.deltaY;
+    // Diagnóstico (só com o leitor em debug): o que o plugin entrega por giro
+    var d = window.__mangaDiag, diag = null;
+    if (d) {
+      diag = d.rolagem || (d.rolagem = { eventos: 0, tratados: 0, deltas: [] });
+      diag.eventos++;
+      if (diag.deltas.length < 10) {
+        diag.deltas.push(Math.round(dy) + (e.deltaMode ? '/modo' + e.deltaMode : ''));
+      }
+    }
+
+    if (!cfg.ativa || e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (!dy || Math.abs(e.deltaX) > Math.abs(dy)) return;
+    // O Chromium manda em pixels; linhas e páginas só por garantia
+    if (e.deltaMode === 1) dy *= 40;
+    else if (e.deltaMode === 2) dy *= window.innerHeight;
+
+    var el = acharAlvo(e, dy);
+    if (!el) return;
+    e.preventDefault();
+    if (diag) diag.tratados++;
+
+    // Continua o deslize se for o mesmo elemento e ninguém mais o rolou
+    if (el !== alvo || Math.abs(el.scrollTop - ultimaEscrita) > 3) {
+      parar();
+      alvo = el;
+      posicao = destino = ultimaEscrita = el.scrollTop;
+    } else if (!animando) {
+      destino = posicao;
+    }
+
+    var giro = dy * cfg.base;  // giro sem o exagero do plugin
+    destino = Math.max(0, Math.min(maximo(el), destino + giro * cfg.intensidade));
+
+    // Sem suavidade, ou passos pequenos e seguidos (touchpad, roda de alta
+    // resolução), que já chegam suaves: aplica direto
+    if (cfg.tau <= 0 || (!animando && Math.abs(giro) < 40)) {
+      parar();
+      posicao = destino;
+      escrever(posicao);
+      return;
+    }
+    if (!animando) {
+      animando = true;
+      pedido = requestAnimationFrame(quadro);
+    }
+  }
+
+  window.addEventListener('wheel', aoGirar, { passive: false });
+  window.__mangaRolagem = {
+    configurar: function(c) { cfg = c; if (!c.ativa) parar(); }
+  };
+})();
+''';
 
   // ---------------------------------------------------------------------------
   // SYNC REMOTO

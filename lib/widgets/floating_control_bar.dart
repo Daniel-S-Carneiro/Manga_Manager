@@ -11,6 +11,9 @@ class FloatingControlBar extends StatelessWidget {
   final VoidCallback onFullScreen;
   final VoidCallback onToggleOrientation;
 
+  /// Abre/fecha o painel da rolagem do mouse; null esconde o botão (celular).
+  final VoidCallback? onScrollSettings;
+
   const FloatingControlBar({
     super.key,
     required this.posTop,
@@ -22,6 +25,7 @@ class FloatingControlBar extends StatelessWidget {
     required this.onReload,
     required this.onFullScreen,
     required this.onToggleOrientation,
+    this.onScrollSettings,
   });
 
   @override
@@ -119,6 +123,23 @@ class FloatingControlBar extends StatelessWidget {
                       width: isVertical.value ? 0 : 4,
                       height: isVertical.value ? 4 : 0,
                     ),
+                    if (onScrollSettings != null) ...[
+                      IconButton(
+                        icon: const Icon(
+                          Icons.mouse,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                        tooltip: 'Rolagem do mouse',
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(8),
+                        onPressed: onScrollSettings,
+                      ),
+                      SizedBox(
+                        width: isVertical.value ? 0 : 4,
+                        height: isVertical.value ? 4 : 0,
+                      ),
+                    ],
                     IconButton(
                       icon: Icon(
                         isVertical.value

@@ -36,6 +36,11 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
 
   String _adBlockScriptCache = '';
 
+  // Scripts que o webview_cef injeta a cada carregamento (ele relê a lista,
+  // então trocar o da rolagem vale para as próximas páginas)
+  InjectUserScripts? _scriptsInjetados;
+  UserScript? _userScriptRolagem;
+
   Timer? _loadTimeout;
 
   // Volta de um anúncio que tomou a página: primeiro pelo histórico (pode
@@ -60,6 +65,26 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
 
   @override
   void logLeitor(String mensagem) => _log(mensagem);
+
+  // O webview_cef entrega à página ~530 px por giro da roda (multiplica por
+  // 10 os 53 do Flutter no Linux): 100/530 volta para ~100 px, como no Windows
+  @override
+  double get fatorBaseRolagem => 100 / 530;
+
+  @override
+  Future<void> aplicarRolagem(String script) async {
+    final scripts = _scriptsInjetados;
+    final antigo = _userScriptRolagem;
+    final novo = UserScript(script, ScriptInjectTime.LOAD_START);
+    if (scripts != null && antigo != null) {
+      final i = scripts.userScripts.indexOf(antigo);
+      if (i >= 0) scripts.userScripts[i] = novo;
+    }
+    _userScriptRolagem = novo;
+    // O script já instalado na página aberta só troca a configuração
+    final c = _webViewController;
+    if (c != null && _isReady) await c.executeJavaScript(script);
+  }
 
   @override
   void initState() {
@@ -101,6 +126,9 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
       );
       allowedDomains = await BrowserHelper.getAllowedDomains();
       final stealth = BrowserHelper.stealthScript;
+      await carregarConfiguracoesRolagem();
+      final rolagem = UserScript(scriptRolagem, ScriptInjectTime.LOAD_START);
+      _userScriptRolagem = rolagem;
 
       _log('config', {
         'userAgent': userAgent ?? '(padrão do CEF)',
@@ -114,7 +142,9 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
       final scripts = InjectUserScripts()
         ..add(UserScript(stealth, ScriptInjectTime.LOAD_START))
         ..add(UserScript(_adBlockScriptCache, ScriptInjectTime.LOAD_START))
-        ..add(UserScript(_adBlockScriptCache, ScriptInjectTime.LOAD_END));
+        ..add(UserScript(_adBlockScriptCache, ScriptInjectTime.LOAD_END))
+        ..add(rolagem);
+      _scriptsInjetados = scripts;
 
       final controller = WebviewManager().createWebView(
         loading: const Center(child: CircularProgressIndicator()),
@@ -150,6 +180,11 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
             }
 
             final allowed = registrarUrl(url);
+            // Detalhes só quando a URL não é permitida (o caso que interessa)
+            if (allowed) {
+              _log('EVENT onUrlChanged', url);
+              return;
+            }
             _log('EVENT onUrlChanged', {
               'url': url,
               'allowed': allowed,
@@ -157,8 +192,6 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
               'lastAllowed': lastAllowedUrl,
               'redirecting': _redirecting,
             });
-
-            if (allowed) return;
 
             if (url.isEmpty || url.startsWith('about:')) {
               _log('URL intermediária ignorada', url);
@@ -243,6 +276,11 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
                 .catchError((e) {
                   _log('stealth inject ERRO', e);
                 });
+            // Garante a rolagem com o ajuste atual (se já estiver instalada,
+            // só reconfigura)
+            c.executeJavaScript(scriptRolagem).catchError((e) {
+              _log('rolagem inject ERRO', e);
+            });
           },
           onConsoleMessage: (level, message, source, line) {
             _log('EVENT onConsoleMessage', {
@@ -401,6 +439,8 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
             ),
 
             barraDeControle(tamanhoTela: screenSize, onRecarregar: _onReload),
+
+            painelDeRolagem(tamanhoTela: screenSize),
           ],
         ),
       ),

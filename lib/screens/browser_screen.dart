@@ -34,6 +34,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   // Mantido true de propósito: interruptor manual de debug (inspeção + logs).
   static const bool _isDebugMode = true;
 
+  // Log interno do flutter_inappwebview (cada requisição, título e progresso,
+  // ligado por padrão em debug): abafava o nosso. Ponha true só para
+  // investigar o próprio plugin.
+  static const bool _logDoPlugin = false;
+
   // --- Interruptores dos ajustes novos --------------------------------------
   // Identidade coerente no Android (UA de Chrome com a versão real do WebView,
   // sem falsear platform, sem "Android WebView" nos client hints e sem o header
@@ -44,6 +49,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   // Injeta o adblock também dentro de iframes (anúncios/pop-unders que nascem
   // em iframe). Se algum player ou captcha quebrar, ponha false.
   static const bool _adblockEmSubframes = true;
+
+  // Grupo do script de rolagem, para trocá-lo quando o usuário muda o ajuste
+  static const String _grupoRolagem = 'manga_rolagem';
 
   // Um único ambiente WebView2 para o app todo (Windows)
   static WebViewEnvironment? _sharedWebViewEnvironment;
@@ -71,9 +79,33 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (_isDebugMode) debugPrint('[BrowserScreen] $mensagem');
   }
 
+  // O flutter_inappwebview_windows entrega à página ~5 giros por giro da roda
+  // (multiplica por 6 o delta do Flutter): 0,2 volta para ~1 giro
+  @override
+  double get fatorBaseRolagem =>
+      (leitorDesktop && Platform.isWindows) ? 0.2 : 1.0;
+
+  UserScript _userScriptRolagem(String source) => UserScript(
+    groupName: _grupoRolagem,
+    source: source,
+    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+  );
+
+  // Troca o script das próximas páginas e reconfigura a página aberta (o
+  // script já instalado só troca a configuração)
+  @override
+  Future<void> aplicarRolagem(String script) async {
+    final c = webViewController;
+    if (c == null) return;
+    await c.removeUserScriptsByGroupName(groupName: _grupoRolagem);
+    await c.addUserScript(userScript: _userScriptRolagem(script));
+    await c.evaluateJavascript(source: script);
+  }
+
   @override
   void initState() {
     super.initState();
+    PlatformInAppWebViewController.debugLoggingSettings.enabled = _logDoPlugin;
     iniciarLeitor();
     _userAgent = _fallbackUserAgent();
     _bootstrap();
@@ -92,6 +124,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   Future<void> _bootstrap() async {
     // Posição/orientação da barra antes de mostrar a tela (evita "pulo")
     await carregarConfiguracoesBarra();
+    // Rolagem antes de montar os scripts (vai embutida no da página)
+    if (leitorDesktop) await carregarConfiguracoesRolagem();
 
     // 1) Ambiente do WebView (Windows) e user agent
     try {
@@ -177,6 +211,8 @@ class _BrowserScreenState extends State<BrowserScreen>
           source: BrowserHelper.cliqueAgressivoScript,
           injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
         ),
+      // Rolagem do mouse (no celular a rolagem é por toque)
+      if (leitorDesktop) _userScriptRolagem(scriptRolagem),
     ];
 
     if (mounted) {
@@ -354,6 +390,8 @@ class _BrowserScreenState extends State<BrowserScreen>
                   tamanhoTela: screenSize,
                   onRecarregar: _recarregar,
                 ),
+
+              if (_bootstrapReady) painelDeRolagem(tamanhoTela: screenSize),
             ],
           ),
         ),
