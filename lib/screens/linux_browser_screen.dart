@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:webview_cef/webview_cef.dart';
-import 'package:window_manager/window_manager.dart';
 
-import '../database/db_helper.dart';
 import '../utils/browser_helper.dart';
-import '../widgets/floating_control_bar.dart';
+import 'leitor_base.dart';
 
+/// Leitor do Linux com webview_cef (o flutter_inappwebview estável não tem
+/// Linux). O comportamento comum aos leitores fica em [LeitorBase].
+///
+/// Limitações do webview_cef em relação ao BrowserScreen: não há interceptação
+/// de requisições nem cancelamento antes de navegar (a URL não permitida é
+/// detectada depois e o leitor volta para a última permitida) e não há evento
+/// de erro de carregamento (usa um tempo limite).
 class LinuxBrowserScreen extends StatefulWidget {
   final String initialUrl;
   final String mangaTitle;
@@ -23,27 +27,16 @@ class LinuxBrowserScreen extends StatefulWidget {
   State<LinuxBrowserScreen> createState() => _LinuxBrowserScreenState();
 }
 
-class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
+class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
+    with LeitorBase<LinuxBrowserScreen> {
   WebViewController? _webViewController;
   bool _isReady = false;
   bool _initStarted = false;
   bool _redirecting = false;
 
-  String? _currentUrl;
-  String? _lastAllowedUrl;
   String _adBlockScriptCache = '';
-  List<String> _allowedDomains = BrowserHelper.defaultAllowedDomains;
-  late final String _originHost;
 
   Timer? _loadTimeout;
-
-  final ValueNotifier<bool> _isLoading = ValueNotifier<bool>(true);
-  final ValueNotifier<bool> _hasError = ValueNotifier<bool>(false);
-  final ValueNotifier<String> _errorMessage = ValueNotifier<String>('');
-
-  final ValueNotifier<double> _posTop = ValueNotifier<double>(20.0);
-  final ValueNotifier<double> _posLeft = ValueNotifier<double>(20.0);
-  final ValueNotifier<bool> _isVertical = ValueNotifier<bool>(false);
 
   static const bool _kDebugLinuxBrowser = true;
 
@@ -57,34 +50,24 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
     }
   }
 
-  /// Origem da sessão (host de initialUrl) + extras do helper/DB.
-  /// Compara pelo HOST, como o BrowserScreen: um domínio permitido escondido
-  /// na query string ou no caminho não libera a navegação.
-  bool _isAllowedUrl(String url) {
-    if (url.isEmpty || url.startsWith('about:') || url.startsWith('data:')) {
-      return false;
-    }
-    if (_originHost.isNotEmpty &&
-        BrowserHelper.isSameOriginHost(url, _originHost)) {
-      return true;
-    }
-    return BrowserHelper.hostMatchesAllowed(url, _allowedDomains);
-  }
+  @override
+  String get urlInicial => widget.initialUrl;
+
+  @override
+  void logLeitor(String mensagem) => _log(mensagem);
 
   @override
   void initState() {
     super.initState();
-    _originHost = BrowserHelper.originHostFromUrl(widget.initialUrl) ?? '';
-    _lastAllowedUrl = widget.initialUrl;
+    iniciarLeitor();
 
     _log('initState', {
       'mangaTitle': widget.mangaTitle,
       'initialUrl': widget.initialUrl,
-      'originHost': _originHost,
+      'originHost': originHost,
     });
 
-    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
-    _carregarConfiguracoesBarra();
+    carregarConfiguracoesBarra().then((_) => limitarPosicaoBarra());
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _log('postFrameCallback → _initializeWebview');
@@ -102,18 +85,20 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
     try {
       final userAgent = await BrowserHelper.getUserAgent();
       _adBlockScriptCache = await BrowserHelper.getAdBlockScript(
-        sessionOriginHost: _originHost,
+        sessionOriginHost: originHost,
       );
-      _allowedDomains = await BrowserHelper.getAllowedDomains();
+      allowedDomains = await BrowserHelper.getAllowedDomains();
       final stealth = BrowserHelper.stealthScript;
 
       _log('config', {
         'userAgent': userAgent,
-        'originHost': _originHost,
-        'allowedDomains': _allowedDomains,
+        'originHost': originHost,
+        'allowedDomains': allowedDomains,
         'adBlockScriptLen': _adBlockScriptCache.length,
       });
 
+      // Sem o BrowserHelper.cliqueAgressivoScript: no CEF ele quebrou sites SPA
+      // (testado), por isso o Linux fica só com o adblock "suave"
       final scripts = InjectUserScripts()
         ..add(UserScript(stealth, ScriptInjectTime.LOAD_START))
         ..add(UserScript(_adBlockScriptCache, ScriptInjectTime.LOAD_START))
@@ -133,29 +118,27 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
         WebviewEventsListener(
           onTitleChanged: (title) {
             _log('EVENT onTitleChanged', title);
+            pageTitle = title;
+            aplicarCapituloDoTexto(title);
           },
           onUrlChanged: (url) {
-            final allowed = _isAllowedUrl(url);
+            final allowed = registrarUrl(url);
             _log('EVENT onUrlChanged', {
               'url': url,
               'allowed': allowed,
-              'originHost': _originHost,
-              'lastAllowed': _lastAllowedUrl,
+              'originHost': originHost,
+              'lastAllowed': lastAllowedUrl,
               'redirecting': _redirecting,
             });
 
-            if (allowed) {
-              _currentUrl = url;
-              _lastAllowedUrl = url;
-              return;
-            }
+            if (allowed) return;
 
             if (url.isEmpty || url.startsWith('about:')) {
               _log('URL intermediária ignorada', url);
               return;
             }
 
-            final backTo = _lastAllowedUrl ?? widget.initialUrl;
+            final backTo = lastAllowedUrl ?? widget.initialUrl;
             if (_redirecting || backTo == url) {
               _log('redirect ignorado', {
                 'redirecting': _redirecting,
@@ -182,36 +165,40 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
             if (url.isEmpty ||
                 url.startsWith('about:') ||
                 url.startsWith('data:') ||
-                !_isAllowedUrl(url)) {
+                !urlPermitida(url)) {
               return;
             }
 
-            _isLoading.value = true;
-            _hasError.value = false;
+            isLoading.value = true;
+            hasError.value = false;
             _loadTimeout?.cancel();
             _loadTimeout = Timer(const Duration(seconds: 25), () {
               _log('TIMEOUT 25s');
-              if (!_isLoading.value) return;
-              final last = _lastAllowedUrl;
-              if (last != null && _isAllowedUrl(last)) {
-                _isLoading.value = false;
+              if (!mounted || !isLoading.value) return;
+              final last = lastAllowedUrl;
+              if (last != null && urlPermitida(last)) {
+                isLoading.value = false;
                 return;
               }
-              _isLoading.value = false;
-              _hasError.value = true;
-              _errorMessage.value =
+              isLoading.value = false;
+              hasError.value = true;
+              errorMessage.value =
                   'Tempo esgotado. Verifique a conexão com a internet.';
             });
           },
           onLoadEnd: (c, url) {
             _log('EVENT onLoadEnd', url);
 
-            if (_isAllowedUrl(url)) {
+            if (registrarUrl(url)) {
               _loadTimeout?.cancel();
-              _isLoading.value = false;
-              _hasError.value = false;
-              _currentUrl = url;
-              _lastAllowedUrl = url;
+              isLoading.value = false;
+              hasError.value = false;
+              // título / cabeçalho, como no BrowserScreen
+              unawaited(
+                detectarCapituloDaPagina(
+                  (script) => c.evaluateJavascript(script),
+                ),
+              );
             }
 
             final ad = _adBlockScriptCache;
@@ -233,8 +220,6 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
                 .catchError((e) {
                   _log('stealth inject ERRO', e);
                 });
-
-            _checkSpaRoot(url);
           },
           onConsoleMessage: (level, message, source, line) {
             _log('EVENT onConsoleMessage', {
@@ -259,129 +244,28 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
       _log('FALHA init', e);
       debugPrint(st.toString());
       if (mounted) {
-        _hasError.value = true;
-        _errorMessage.value = 'Falha ao iniciar WebView: $e';
-        _isLoading.value = false;
+        hasError.value = true;
+        errorMessage.value = 'Falha ao iniciar WebView: $e';
+        isLoading.value = false;
       }
-    }
-  }
-
-  Future<void> _checkSpaRoot(String url) async {
-    if (!url.contains('/r/')) {
-      _log('_checkSpaRoot skip');
-      return;
-    }
-    final c = _webViewController;
-    if (c == null) return;
-    try {
-      _log('_checkSpaRoot aguardando 4s...');
-      await Future.delayed(const Duration(seconds: 4));
-      if (!mounted) return;
-      final result = await c.evaluateJavascript('''
-        (function() {
-          const root = document.getElementById('root');
-          if (!root) return false;
-          return root.innerHTML.length > 100;
-        })();
-      ''');
-      final ok = result == true || result == 'true';
-      _log('_checkSpaRoot result', {'raw': result, 'ok': ok});
-    } catch (e) {
-      _log('_checkSpaRoot ERRO', e);
     }
   }
 
   @override
   void dispose() {
-    _log('dispose', {
-      'currentUrl': _currentUrl,
-      'lastAllowed': _lastAllowedUrl,
-    });
+    _log('dispose', {'currentUrl': currentUrl, 'lastAllowed': lastAllowedUrl});
     _loadTimeout?.cancel();
-    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
-    try {
-      windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      windowManager.setFullScreen(false);
-    } catch (_) {}
     _webViewController?.dispose();
-    _isLoading.dispose();
-    _hasError.dispose();
-    _errorMessage.dispose();
-    _posTop.dispose();
-    _posLeft.dispose();
-    _isVertical.dispose();
+    encerrarLeitor();
     super.dispose();
-  }
-
-  bool _handleGlobalKey(KeyEvent event) {
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f11) {
-      _log('KEY F11');
-      _toggleFullScreen();
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> _toggleFullScreen() async {
-    _log('toggleFullScreen');
-    try {
-      final isFull = await windowManager.isFullScreen();
-      final next = !isFull;
-      await windowManager.setTitleBarStyle(
-        next ? TitleBarStyle.hidden : TitleBarStyle.normal,
-      );
-      await windowManager.setFullScreen(next);
-    } catch (e) {
-      _log('fullscreen ERRO', e);
-    }
-  }
-
-  Future<void> _carregarConfiguracoesBarra() async {
-    final db = DbHelper();
-    final xStr = await db.getConfig('barra_x');
-    final yStr = await db.getConfig('barra_y');
-    final isVertStr = await db.getConfig('barra_vertical');
-    if (xStr != null) _posLeft.value = double.tryParse(xStr) ?? 20.0;
-    if (yStr != null) _posTop.value = double.tryParse(yStr) ?? 20.0;
-    if (isVertStr != null) _isVertical.value = isVertStr == 'true';
-    _log('barra config', {
-      'left': _posLeft.value,
-      'top': _posTop.value,
-      'vertical': _isVertical.value,
-    });
-  }
-
-  Future<void> _salvarPosicaoBarra() async {
-    final db = DbHelper();
-    await db.setConfig('barra_x', _posLeft.value.toString());
-    await db.setConfig('barra_y', _posTop.value.toString());
-  }
-
-  Future<void> _salvarOrientacaoBarra() async {
-    await DbHelper().setConfig('barra_vertical', _isVertical.value.toString());
-  }
-
-  Future<void> _voltarComUrl() async {
-    _log('onBack', {'lastAllowed': _lastAllowedUrl, 'current': _currentUrl});
-    try {
-      if (await windowManager.isFullScreen()) {
-        await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-        await windowManager.setFullScreen(false);
-      }
-    } catch (_) {}
-    if (mounted) {
-      final result = _lastAllowedUrl ?? _currentUrl ?? widget.initialUrl;
-      _log('Navigator.pop', result);
-      Navigator.pop(context, result);
-    }
   }
 
   void _onReload() {
     _log('onReload');
     final c = _webViewController;
     if (c == null) return;
-    if (_hasError.value) _hasError.value = false;
-    _isLoading.value = true;
+    if (hasError.value) hasError.value = false;
+    isLoading.value = true;
     c.reload();
   }
 
@@ -395,19 +279,19 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
       onPopInvokedWithResult: (didPop, result) async {
         _log('PopScope', {'didPop': didPop});
         if (didPop) return;
-        await _voltarComUrl();
+        await voltarComResultado();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            if (_isReady && !_hasError.value && controller != null)
+            if (_isReady && !hasError.value && controller != null)
               controller.webviewWidget,
 
             ValueListenableBuilder<bool>(
-              valueListenable: _hasError,
-              builder: (context, hasError, _) {
-                if (!hasError) return const SizedBox.shrink();
+              valueListenable: hasError,
+              builder: (context, erro, _) {
+                if (!erro) return const SizedBox.shrink();
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(20),
@@ -421,7 +305,7 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
                         ),
                         const SizedBox(height: 16),
                         ValueListenableBuilder<String>(
-                          valueListenable: _errorMessage,
+                          valueListenable: errorMessage,
                           builder: (_, msg, _) => Text(
                             msg.isEmpty ? 'Falha ao carregar a página.' : msg,
                             textAlign: TextAlign.center,
@@ -442,39 +326,16 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen> {
             ),
 
             ValueListenableBuilder<bool>(
-              valueListenable: _isLoading,
-              builder: (_, isLoading, _) {
-                if (isLoading && !_hasError.value) {
+              valueListenable: isLoading,
+              builder: (_, carregando, _) {
+                if (carregando && !hasError.value) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 return const SizedBox.shrink();
               },
             ),
 
-            FloatingControlBar(
-              posTop: _posTop,
-              posLeft: _posLeft,
-              isVertical: _isVertical,
-              screenSize: screenSize,
-              onPanEnd: _salvarPosicaoBarra,
-              onBack: () {
-                _log('UI onBack');
-                _voltarComUrl();
-              },
-              onReload: () {
-                _log('UI onReload');
-                _onReload();
-              },
-              onFullScreen: () {
-                _log('UI onFullScreen');
-                _toggleFullScreen();
-              },
-              onToggleOrientation: () {
-                _log('UI onToggleOrientation');
-                _isVertical.value = !_isVertical.value;
-                _salvarOrientacaoBarra();
-              },
-            ),
+            barraDeControle(tamanhoTela: screenSize, onRecarregar: _onReload),
           ],
         ),
       ),

@@ -59,6 +59,42 @@ class BrowserHelper {
     return parseChapterNumber(title) ?? parseChapterFromUrl(url);
   }
 
+  /// Texto do primeiro cabeçalho da página (ou o título), usado para achar o
+  /// capítulo quando o título da aba não traz o número.
+  static const String scriptTextoCabecalho = r'''
+(function() {
+  var h = document.querySelector('h1, h2, header, [class*="title"], [class*="chapter"]');
+  if (!h) return document.title || '';
+  return (h.innerText || h.textContent || '').slice(0, 200);
+})();
+''';
+
+  /// Bloqueia cliques em iframes e em elementos com classe/id de anúncio
+  /// (só desktop). Casa "ad", "ads", "banner"... só como palavra inteira
+  /// (antes, 'ad' pegava "read", "reader", "header", "loader", "download"...).
+  static const String cliqueAgressivoScript = r'''
+(function() {
+  if (window.__mangaAggressiveClick) return;
+  window.__mangaAggressiveClick = true;
+
+  var AD_TOKEN = /(^|[\s_-])(ad|ads|adv|advert|advertisement|adsbygoogle|banner|popup)([\s_-]|$)/;
+
+  document.addEventListener('click', function(e) {
+    var target = e.target;
+    if (!target) return;
+
+    var id = String(target.id || '').toLowerCase();
+    var cls = String((target.getAttribute && target.getAttribute('class')) || '').toLowerCase();
+    var tag = String(target.tagName || '').toUpperCase();
+
+    if (tag === 'IFRAME' || AD_TOKEN.test(id) || AD_TOKEN.test(cls)) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+})();
+''';
+
   static const List<String> defaultAdDomains = [
     'dearthsongman.shop',
     'officeklafter.com',

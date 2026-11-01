@@ -115,6 +115,20 @@ void main() {
       );
     });
 
+    test('número no nome do mangá não é confundido com o capítulo', () {
+      expect(
+        BrowserHelper.parseChapterFromUrl(
+          'https://site.com/manga/6th-degree-capitulo-255/',
+        ),
+        255,
+      );
+      expect(
+        BrowserHelper.parseChapter(title: '6th Degree - Capítulo 255'),
+        255,
+      );
+      expect(BrowserHelper.parseChapter(title: 'Capítulo 47/255'), 47);
+    });
+
     test('sem capítulo em lugar nenhum devolve null', () {
       expect(
         BrowserHelper.parseChapter(

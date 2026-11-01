@@ -31,7 +31,7 @@
 - Bloqueia anúncios, pop-ups e redirecionamentos, e mantém a navegação dentro do site do mangá.
 - Barra de controle flutuante (voltar, recarregar e tela cheia), na horizontal ou na vertical, que pode ser arrastada e lembra a posição.
 - Tela cheia com **F11**.
-- Ao fechar o leitor, o app identifica o capítulo pelo título ou pelo endereço da página e **pergunta** se você quer atualizar o link e o capítulo. Nada é gravado sem confirmação. No Linux, por enquanto, só o link é atualizado.
+- Ao fechar o leitor, o app identifica o capítulo pelo título ou pelo endereço da página e **pergunta** se você quer atualizar o link e o capítulo. Nada é gravado sem confirmação.
 
 ### Interface e dados
 
@@ -88,7 +88,7 @@ lib/
 ├── main.dart          # inicialização, zoom, tema e tela principal
 ├── controllers/       # aviso para a tela principal recarregar a lista
 ├── database/          # DbHelper (SQLite)
-├── screens/           # leitor: BrowserScreen (Windows/Android) e LinuxBrowserScreen (CEF)
+├── screens/           # leitor: base comum (LeitorBase), BrowserScreen (Windows/Android) e LinuxBrowserScreen (CEF)
 ├── services/          # backup e atualização automática
 ├── utils/             # adblock e filtro de navegação, tema, tar.gz, seletor de arquivos
 └── widgets/           # cards, formulários, diálogos e barra de controle do leitor

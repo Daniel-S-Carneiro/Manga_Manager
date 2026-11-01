@@ -4,16 +4,15 @@ import 'dart:io' show Platform, Directory;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path/path.dart' as p;
-import 'package:window_manager/window_manager.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../database/db_helper.dart';
 import '../utils/browser_helper.dart';
-import '../widgets/floating_control_bar.dart';
+import 'leitor_base.dart';
 
+/// Leitor com flutter_inappwebview (Windows/WebView2, Android, iOS, macOS).
+/// O comportamento comum aos leitores fica em [LeitorBase].
 class BrowserScreen extends StatefulWidget {
   final String initialUrl;
   final String mangaTitle;
@@ -30,7 +29,8 @@ class BrowserScreen extends StatefulWidget {
   State<BrowserScreen> createState() => _BrowserScreenState();
 }
 
-class _BrowserScreenState extends State<BrowserScreen> {
+class _BrowserScreenState extends State<BrowserScreen>
+    with LeitorBase<BrowserScreen> {
   // Mantido true de propósito: interruptor manual de debug (inspeção + logs).
   static const bool _isDebugMode = true;
 
@@ -50,35 +50,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
   WebViewEnvironment? _webViewEnvironment;
 
   InAppWebViewController? webViewController;
-  String? _currentUrl;
-  String? _lastAllowedUrl;
 
-  int? _detectedChapter;
-  String? _pageTitle;
-
-  late final String _originHost;
-  List<String> _allowedExtra = BrowserHelper.defaultAllowedDomains;
   RegExp? _adHostRegex; // entradas sem "/": comparadas só com o host
   RegExp? _adUrlRegex; // entradas com "/": comparadas com a URL inteira
   String _userAgent = '';
   List<UserScript> _initialUserScripts = const [];
   bool _bootstrapReady = false;
-
-  // ValueNotifiers para estado reativo sem reconstruir a tela inteira
-  final ValueNotifier<bool> _isLoading = ValueNotifier<bool>(true);
-  final ValueNotifier<bool> _hasError = ValueNotifier<bool>(false);
-  final ValueNotifier<String> _errorMessage = ValueNotifier<String>('');
-
-  final ValueNotifier<double> _posTop = ValueNotifier<double>(20.0);
-  final ValueNotifier<double> _posLeft = ValueNotifier<double>(20.0);
-  final ValueNotifier<bool> _isVertical = ValueNotifier<bool>(false);
-
-  bool _isMobileFullScreen = false;
-
-  bool get _isDesktop {
-    if (kIsWeb) return false;
-    return Platform.isWindows || Platform.isMacOS;
-  }
 
   bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
@@ -88,43 +65,25 @@ class _BrowserScreenState extends State<BrowserScreen> {
   bool get _useAndroidV2 => _stealthMobileV2 && _isAndroid;
 
   @override
+  String get urlInicial => widget.initialUrl;
+
+  @override
+  void logLeitor(String mensagem) {
+    if (_isDebugMode) debugPrint('[BrowserScreen] $mensagem');
+  }
+
+  @override
   void initState() {
     super.initState();
-    _originHost = BrowserHelper.originHostFromUrl(widget.initialUrl) ?? '';
-    _lastAllowedUrl = widget.initialUrl;
+    iniciarLeitor();
     _userAgent = _fallbackUserAgent();
-
-    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
     _bootstrap();
   }
 
   @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
-    if (_isDesktop) {
-      unawaited(_restaurarJanela());
-    } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
-
-    // Libera os recursos dos Notifiers
-    _isLoading.dispose();
-    _hasError.dispose();
-    _errorMessage.dispose();
-    _posTop.dispose();
-    _posLeft.dispose();
-    _isVertical.dispose();
-
+    encerrarLeitor();
     super.dispose();
-  }
-
-  // Futures sem await dentro de um try síncrono não têm os erros capturados,
-  // então a restauração da janela fica numa função própria.
-  Future<void> _restaurarJanela() async {
-    try {
-      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      await windowManager.setFullScreen(false);
-    } catch (_) {}
   }
 
   // ---------------------------------------------------------------------------
@@ -133,11 +92,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   Future<void> _bootstrap() async {
     // Posição/orientação da barra antes de mostrar a tela (evita "pulo")
-    await _carregarConfiguracoesBarra();
+    await carregarConfiguracoesBarra();
 
     // 1) Ambiente do WebView (Windows) e user agent
     try {
-      if (_isDesktop && Platform.isWindows) {
+      if (leitorDesktop && Platform.isWindows) {
         await _prepararWebViewEnvironmentWindows();
         _userAgent = _fallbackUserAgent();
       } else if (_useAndroidV2) {
@@ -151,21 +110,17 @@ class _BrowserScreenState extends State<BrowserScreen> {
         }
       }
     } catch (e, st) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Falha no ambiente/UA: $e\n$st');
-      }
+      logLeitor('Falha no ambiente/UA: $e\n$st');
       _userAgent = _fallbackUserAgent();
     }
 
     // 2) Listas de domínios
     var adDomains = List<String>.from(BrowserHelper.defaultAdDomains);
     try {
-      _allowedExtra = await BrowserHelper.getAllowedDomains();
+      allowedDomains = await BrowserHelper.getAllowedDomains();
       adDomains = await BrowserHelper.getAdDomains();
     } catch (e, st) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Falha ao ler listas de domínios: $e\n$st');
-      }
+      logLeitor('Falha ao ler listas de domínios: $e\n$st');
     }
     _compilarRegexAnuncios(adDomains);
 
@@ -173,14 +128,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
     String adJs = '';
     try {
       adJs = await BrowserHelper.getAdBlockScript(
-        sessionOriginHost: _originHost,
+        sessionOriginHost: originHost,
         adDomains: adDomains,
-        allowedDomains: _allowedExtra,
+        allowedDomains: allowedDomains,
       );
     } catch (e, st) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Falha ao montar o adblock: $e\n$st');
-      }
+      logLeitor('Falha ao montar o adblock: $e\n$st');
     }
 
     _initialUserScripts = [
@@ -212,17 +165,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
         source: _f11Script,
         injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
       ),
-      // Clique agressivo apenas para Desktop/Windows
-      if (_isDesktop)
+      // Clique agressivo apenas para Desktop
+      if (leitorDesktop)
         UserScript(
-          source: _aggressiveClickScript,
+          source: BrowserHelper.cliqueAgressivoScript,
           injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
         ),
     ];
 
     if (mounted) {
       setState(() => _bootstrapReady = true);
-      WidgetsBinding.instance.addPostFrameCallback((_) => _clampPosicaoBarra());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => limitarPosicaoBarra(),
+      );
     }
   }
 
@@ -230,10 +185,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (_sharedWebViewEnvironment == null) {
       final versao = await WebViewEnvironment.getAvailableVersion();
       if (versao == null) {
-        _errorMessage.value =
+        errorMessage.value =
             'WebView2 Runtime não encontrado. Instale o Microsoft Edge WebView2 Runtime e tente novamente.';
-        _hasError.value = true;
-        _isLoading.value = false;
+        hasError.value = true;
+        isLoading.value = false;
         return;
       }
 
@@ -268,9 +223,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         return 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Mobile Safari/537.36';
       }
     } catch (e) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Falha ao ler UA padrão do WebView: $e');
-      }
+      logLeitor('Falha ao ler UA padrão do WebView: $e');
     }
     return _fallbackUserAgent();
   }
@@ -293,21 +246,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
         : RegExp(urlEntries.join('|'), caseSensitive: false);
   }
 
-  void _applyChapterFromText(String? text) {
-    final ch = BrowserHelper.parseChapter(
-      title: text,
-      url: _lastAllowedUrl ?? _currentUrl,
-    );
-    if (ch != null) {
-      _detectedChapter = ch;
-      if (_isDebugMode) {
-        debugPrint(
-          '[BrowserScreen] Capítulo detectado: $ch | texto original: $text | title: $_pageTitle',
-        );
-      }
-    }
-  }
-
   // Anúncio: compara só o HOST (ex.: 'adjust.com' não pega mais query string
   // nem caminho); entradas com "/" continuam comparando a URL inteira.
   bool _isAd(String url) {
@@ -317,56 +255,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
     return _adUrlRegex?.hasMatch(url) ?? false;
   }
 
-  // Permitida: compara o HOST (um domínio permitido escondido na query string
-  // não libera mais a navegação).
-  bool _isAllowedUrl(String url) {
-    if (url.isEmpty || url.startsWith('about:') || url.startsWith('data:')) {
-      return false;
-    }
-    if (_originHost.isNotEmpty &&
-        BrowserHelper.isSameOriginHost(url, _originHost)) {
-      return true;
-    }
-    return BrowserHelper.hostMatchesAllowed(url, _allowedExtra);
-  }
-
   String _fallbackUserAgent() {
-    if (kIsWeb || _isDesktop) {
+    if (kIsWeb || leitorDesktop) {
       return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     }
     return 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
-  }
-
-  bool _handleGlobalKey(KeyEvent event) {
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f11) {
-      _toggleFullScreen();
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> _toggleFullScreen() async {
-    if (_isDesktop) {
-      try {
-        final isFullScreen = await windowManager.isFullScreen();
-        final novoEstado = !isFullScreen;
-        await windowManager.setTitleBarStyle(
-          novoEstado ? TitleBarStyle.hidden : TitleBarStyle.normal,
-        );
-        await windowManager.setFullScreen(novoEstado);
-      } catch (e) {
-        if (_isDebugMode) {
-          debugPrint('[BrowserScreen] Erro FullScreen Desktop: $e');
-        }
-      }
-    } else {
-      _isMobileFullScreen = !_isMobileFullScreen;
-      SystemChrome.setEnabledSystemUIMode(
-        _isMobileFullScreen
-            ? SystemUiMode.immersiveSticky
-            : SystemUiMode.edgeToEdge,
-      );
-    }
   }
 
   Future<void> _abrirComCustomTabs(String url) async {
@@ -383,109 +276,24 @@ class _BrowserScreenState extends State<BrowserScreen> {
         ),
       );
     } catch (e) {
-      if (_isDebugMode) debugPrint('[BrowserScreen] Erro CustomTabs: $e');
+      logLeitor('Erro CustomTabs: $e');
     }
   }
 
-  Future<void> _carregarConfiguracoesBarra() async {
-    try {
-      final db = DbHelper();
-      final xStr = await db.getConfig('barra_x');
-      final yStr = await db.getConfig('barra_y');
-      final isVertStr = await db.getConfig('barra_vertical');
-
-      if (xStr != null) _posLeft.value = double.tryParse(xStr) ?? 20.0;
-      if (yStr != null) _posTop.value = double.tryParse(yStr) ?? 20.0;
-      if (isVertStr != null) _isVertical.value = isVertStr == 'true';
-    } catch (e) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Erro ao carregar config da barra: $e');
-      }
-    }
-  }
-
-  // Garante que a barra não abra fora da tela (janela menor, zoom diferente...)
-  void _clampPosicaoBarra() {
-    if (!mounted) return;
-    final size = MediaQuery.sizeOf(context);
-    const double minVisivel = 48;
-
-    final maxLeft = (size.width - minVisivel).clamp(0.0, double.infinity);
-    final maxTop = (size.height - minVisivel).clamp(0.0, double.infinity);
-
-    _posLeft.value = _posLeft.value.clamp(0.0, maxLeft).toDouble();
-    _posTop.value = _posTop.value.clamp(0.0, maxTop).toDouble();
-  }
-
-  Future<void> _salvarPosicaoBarra() async {
-    try {
-      final db = DbHelper();
-      // Uma casa decimal basta (antes salvava 31.33333333333313)
-      await db.setConfig('barra_x', _posLeft.value.toStringAsFixed(1));
-      await db.setConfig('barra_y', _posTop.value.toStringAsFixed(1));
-    } catch (e) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Erro ao salvar posição da barra: $e');
-      }
-    }
-  }
-
-  Future<void> _salvarOrientacaoBarra() async {
-    try {
-      await DbHelper().setConfig(
-        'barra_vertical',
-        _isVertical.value.toString(),
-      );
-    } catch (e) {
-      if (_isDebugMode) {
-        debugPrint('[BrowserScreen] Erro ao salvar orientação da barra: $e');
-      }
-    }
-  }
-
-  Future<void> _voltarComUrl() async {
-    if (_isDesktop) {
-      try {
-        if (await windowManager.isFullScreen()) {
-          await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-          await windowManager.setFullScreen(false);
-        }
-      } catch (_) {}
-    } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
-
-    if (mounted) {
-      Navigator.pop(context, {
-        'url': _lastAllowedUrl ?? _currentUrl ?? widget.initialUrl,
-        'capitulo': _detectedChapter,
-      });
-    }
-  }
-
+  // Título da aba primeiro; se não trouxer o capítulo, o cabeçalho da página
   Future<void> _tryDetectChapter(InAppWebViewController controller) async {
     try {
-      final t = await controller.getTitle();
-      _pageTitle = t;
-      _applyChapterFromText(t);
+      pageTitle = await controller.getTitle();
     } catch (_) {}
+    await detectarCapituloDaPagina(
+      (script) => controller.evaluateJavascript(source: script),
+    );
+  }
 
-    if (_detectedChapter != null) return;
-
-    try {
-      final raw = await controller.evaluateJavascript(
-        source: r'''
-        (function() {
-          var h = document.querySelector('h1, h2, header, [class*="title"], [class*="chapter"]');
-          if (!h) return document.title || '';
-          return (h.innerText || h.textContent || '').slice(0, 200);
-        })();
-      ''',
-      );
-      if (raw != null) {
-        _applyChapterFromText(raw.toString());
-      }
-    } catch (_) {}
+  void _recarregar() {
+    if (hasError.value) hasError.value = false;
+    isLoading.value = true;
+    webViewController?.reload();
   }
 
   @override
@@ -496,7 +304,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       canPop: false,
       onPopInvokedWithResult: (bool didPop, Object? result) async {
         if (didPop) return;
-        await _voltarComUrl();
+        await voltarComResultado();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -510,9 +318,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 )
               else
                 ValueListenableBuilder<bool>(
-                  valueListenable: _hasError,
-                  builder: (context, hasError, child) {
-                    if (hasError) {
+                  valueListenable: hasError,
+                  builder: (context, erro, child) {
+                    if (erro) {
                       return _buildErrorState();
                     }
                     return _buildWebView();
@@ -520,9 +328,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 ),
 
               ValueListenableBuilder<bool>(
-                valueListenable: _isLoading,
-                builder: (context, isLoading, child) {
-                  if (isLoading && !_hasError.value && _bootstrapReady) {
+                valueListenable: isLoading,
+                builder: (context, carregando, child) {
+                  if (carregando && !hasError.value && _bootstrapReady) {
                     return Positioned(
                       top: 0,
                       left: 0,
@@ -539,23 +347,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
               ),
 
               if (_bootstrapReady)
-                FloatingControlBar(
-                  posTop: _posTop,
-                  posLeft: _posLeft,
-                  isVertical: _isVertical,
-                  screenSize: screenSize,
-                  onPanEnd: _salvarPosicaoBarra,
-                  onBack: _voltarComUrl,
-                  onReload: () {
-                    if (_hasError.value) _hasError.value = false;
-                    _isLoading.value = true;
-                    webViewController?.reload();
-                  },
-                  onFullScreen: _toggleFullScreen,
-                  onToggleOrientation: () {
-                    _isVertical.value = !_isVertical.value;
-                    _salvarOrientacaoBarra();
-                  },
+                barraDeControle(
+                  tamanhoTela: screenSize,
+                  onRecarregar: _recarregar,
                 ),
             ],
           ),
@@ -587,7 +381,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _errorMessage.value,
+              errorMessage.value,
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white70, fontSize: 14),
             ),
@@ -601,11 +395,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   vertical: 12,
                 ),
               ),
-              onPressed: () {
-                _hasError.value = false;
-                _isLoading.value = true;
-                webViewController?.reload();
-              },
+              onPressed: _recarregar,
               icon: const Icon(Icons.refresh),
               label: const Text('Tentar Novamente'),
             ),
@@ -630,7 +420,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
         useWideViewPort: true,
         loadWithOverviewMode: true,
-        preferredContentMode: _isDesktop
+        preferredContentMode: leitorDesktop
             ? UserPreferredContentMode.DESKTOP
             : UserPreferredContentMode.MOBILE,
         userAgent: _userAgent,
@@ -657,44 +447,33 @@ class _BrowserScreenState extends State<BrowserScreen> {
         webViewController = controller;
         controller.addJavaScriptHandler(
           handlerName: 'toggleFullScreen',
-          callback: (args) => _toggleFullScreen(),
+          callback: (args) => alternarTelaCheia(),
         );
       },
       onTitleChanged: (controller, title) {
-        _pageTitle = title;
-        if (_isDebugMode) {
-          debugPrint('[BrowserScreen] title: $title');
-        }
-        _applyChapterFromText(title);
+        pageTitle = title;
+        logLeitor('title: $title');
+        aplicarCapituloDoTexto(title);
       },
       onLoadStart: (controller, url) async {
-        final u = url?.toString() ?? '';
-        if (_isAllowedUrl(u)) {
-          _isLoading.value = true;
-          _hasError.value = false;
-          _currentUrl = u;
-          _lastAllowedUrl = u;
+        if (registrarUrl(url?.toString() ?? '')) {
+          isLoading.value = true;
+          hasError.value = false;
         }
       },
       onLoadStop: (controller, url) async {
         final u = url?.toString() ?? '';
 
-        if (_isAllowedUrl(u)) {
-          _isLoading.value = false;
-          _currentUrl = u;
-          _lastAllowedUrl = u;
-
-          final chUrl = BrowserHelper.parseChapterFromUrl(u);
-          if (chUrl != null) _detectedChapter = chUrl;
-
+        if (registrarUrl(u)) {
+          isLoading.value = false;
           // title / header (uma única chamada por carregamento)
           await _tryDetectChapter(controller);
         } else if (!(u.isEmpty || u.startsWith('about:'))) {
-          _isLoading.value = false;
+          isLoading.value = false;
         }
 
         // SPA Nexus: tratamento mobile
-        if (_isAllowedUrl(u) && u.contains('/r/') && _isMobile) {
+        if (urlPermitida(u) && u.contains('/r/') && _isMobile) {
           await Future.delayed(const Duration(seconds: 4));
           if (!mounted) return;
 
@@ -717,21 +496,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
         // Corrige URL real em caso de redirecionamentos internos invisíveis
         try {
           final real = (await controller.getUrl())?.toString();
-          if (real != null && _isAllowedUrl(real)) {
-            _currentUrl = real;
-            _lastAllowedUrl = real;
-          }
+          if (real != null) registrarUrl(real);
         } catch (_) {}
       },
       onUpdateVisitedHistory: (controller, url, isReload) {
-        final u = url?.toString() ?? '';
-        if (u.isEmpty) return;
-        if (_isAllowedUrl(u)) {
-          _currentUrl = u;
-          _lastAllowedUrl = u;
-          final ch = BrowserHelper.parseChapterFromUrl(u);
-          if (ch != null) _detectedChapter = ch;
-        }
+        registrarUrl(url?.toString() ?? '');
       },
       shouldOverrideUrlLoading: (controller, navigationAction) async {
         final url = navigationAction.request.url?.toString() ?? '';
@@ -743,7 +512,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         if (!isMain) {
           return NavigationActionPolicy.ALLOW;
         }
-        if (_isAllowedUrl(url)) {
+        if (urlPermitida(url)) {
           return NavigationActionPolicy.ALLOW;
         }
         return NavigationActionPolicy.CANCEL;
@@ -773,20 +542,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
         }
 
         // Se a url não for permitida, ignora também (pode ser o adblock cancelando requisições)
-        if (!_isAllowedUrl(u) && u.isNotEmpty) return;
+        if (!urlPermitida(u) && u.isNotEmpty) return;
 
         // Mensagem antes do flag: a tela de erro lê o texto ao reconstruir
-        _errorMessage.value = _isDebugMode
+        errorMessage.value = _isDebugMode
             ? 'Tipo: ${error.type}\nMensagem: ${error.description}'
             : 'Verifique sua conexão com a internet ou se o site está online.';
 
-        _isLoading.value = false;
-        _hasError.value = true;
+        isLoading.value = false;
+        hasError.value = true;
       },
     );
   }
 
-  // SCRIPTS ESTÁTICOS
+  // SCRIPTS ESTÁTICOS (específicos do flutter_inappwebview)
   static const String _f11Script = r'''
 (function() {
   if (window.__mangaF11Installed) return;
@@ -799,31 +568,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
       } catch (err) {}
     }
   });
-})();
-''';
-
-  // Casa "ad", "ads", "banner"... só como palavra inteira na classe/id
-  // (antes, 'ad' pegava "read", "reader", "header", "loader", "download"...)
-  static const String _aggressiveClickScript = r'''
-(function() {
-  if (window.__mangaAggressiveClick) return;
-  window.__mangaAggressiveClick = true;
-
-  var AD_TOKEN = /(^|[\s_-])(ad|ads|adv|advert|advertisement|adsbygoogle|banner|popup)([\s_-]|$)/;
-
-  document.addEventListener('click', function(e) {
-    var target = e.target;
-    if (!target) return;
-
-    var id = String(target.id || '').toLowerCase();
-    var cls = String((target.getAttribute && target.getAttribute('class')) || '').toLowerCase();
-    var tag = String(target.tagName || '').toUpperCase();
-
-    if (tag === 'IFRAME' || AD_TOKEN.test(id) || AD_TOKEN.test(cls)) {
-      e.stopPropagation();
-      e.preventDefault();
-    }
-  }, true);
 })();
 ''';
 

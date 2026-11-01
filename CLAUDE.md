@@ -20,7 +20,8 @@ flutter test --plain-name "nome do teste"
 build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/ (exige árvore Git limpa)
 ```
 
-- Os testes cobrem só lógica pura e diálogos (`BrowserHelper`, `atualizacao_leitura_dialog.dart`). Nada que abra o banco ou o WebView é testado automaticamente; isso precisa de teste manual no app.
+- Os testes cobrem lógica pura e diálogos (`BrowserHelper`, `LeitorBase`, `atualizacao_leitura_dialog.dart`). Nada que abra o banco ou o WebView é testado automaticamente; isso precisa de teste manual no app.
+- Em `testWidgets`, código que chama canal de plataforma (banco, `window_manager`, `path_provider`) precisa de `tester.runAsync(...)`. Sem isso o teste espera para sempre uma resposta que nunca chega.
 - `build_installer.cmd` lê a versão da linha `version:` do `pubspec.yaml` (parte antes do `+`) e passa para o `installer.nsi` como `APP_VERSION`. Precisa do NSIS em `C:\Program Files (x86)\NSIS\makensis.exe`.
 
 ## Linux via WSL (distro `Ubuntu`)
@@ -54,7 +55,13 @@ wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull --ff-onl
 
 **Tela principal (`MainScreen` em `lib/main.dart`).** Paginação de 30 em 30 com scroll infinito e busca com debounce. A reordenação por arrasto fica bloqueada durante uma busca ou antes de carregar a lista inteira, porque `reordenarMangas` regrava `ordem_leitura` a partir da lista em memória. Os cards se atualizam individualmente com `_atualizarMangaEspecifico`.
 
-**Leitor embutido.** `MangaCardWidget._abrirLink` (`lib/widgets/manga_card.dart`) abre `LinuxBrowserScreen` (webview_cef) no Linux e `BrowserScreen` (flutter_inappwebview, WebView2 no Windows) nas demais plataformas. O `BrowserScreen` retorna um `Map` com `url` e `capitulo`. O `LinuxBrowserScreen` retorna só a URL, porque não detecta o capítulo. O card compara esse retorno com o que está salvo (`MudancasLeitura` em `lib/widgets/atualizacao_leitura_dialog.dart`) e **sempre pede confirmação** antes de gravar o link ou o capítulo, porque a detecção do capítulo pode errar. A lógica comum fica em `lib/utils/browser_helper.dart`: script de adblock injetado, filtro de navegação por **host** permitido, scripts de stealth (o de Android é diferente), detecção do número do capítulo pelo título ou pela URL, user agent e sincronização remota das listas (só https em release). As duas telas salvam a posição da `FloatingControlBar`. Ao mudar o comportamento do leitor, **mantenha as duas telas coerentes**.
+**Leitor embutido.** `MangaCardWidget._abrirLink` (`lib/widgets/manga_card.dart`) abre `LinuxBrowserScreen` (webview_cef) no Linux e `BrowserScreen` (flutter_inappwebview, WebView2 no Windows) nas demais plataformas. O flutter_inappwebview estável não tem Linux; o suporte só existe em beta, com WPE WebKit, que não está no apt do Ubuntu.
+- **Comum às duas telas:** fica no mixin `LeitorBase` (`lib/screens/leitor_base.dart`): URL permitida (por **host**), URL atual e última permitida, detecção do capítulo (título, URL e cabeçalho), barra flutuante (carregar, salvar, manter dentro da tela), tela cheia/F11 e o resultado ao fechar (`{'url', 'capitulo'}`). Cada tela só cria o seu navegador e liga os eventos dele a `registrarUrl`, `aplicarCapituloDoTexto` e `detectarCapituloDaPagina`. **Comportamento novo do leitor vai para o `LeitorBase`**, não para uma das telas.
+- **Scripts e listas:** ficam em `lib/utils/browser_helper.dart`: adblock injetado, scripts de stealth (o de Android é diferente), clique agressivo, leitura do cabeçalho, listas de domínios, user agent e sincronização remota das listas (só https em release).
+- **Limitações do webview_cef** (sem como igualar): não intercepta requisições nem cancela a navegação antes de acontecer (o Linux detecta a URL não permitida e volta para a última permitida) e não tem evento de erro de carregamento (usa um tempo limite de 25 s).
+- **Diferenças de propósito:** o `cliqueAgressivoScript` roda só no `BrowserScreen` desktop. No CEF ele quebrou sites SPA, então o Linux fica só com o adblock "suave".
+- **Tentativas que não funcionaram no Linux:** o `zikzak_inappwebview` (fork com WPE) travou com `Gtk-CRITICAL: gtk_widget_draw` logo depois do `onWebViewCreated`, testado no WSL. Também não dá para ter o `flutter_inappwebview` estável e o beta juntos no `pubspec`.
+- O card compara o retorno com o que está salvo (`MudancasLeitura` em `lib/widgets/atualizacao_leitura_dialog.dart`) e **sempre pede confirmação** antes de gravar o link ou o capítulo, porque a detecção do capítulo pode errar.
 
 **Backup (`lib/services/backup_service.dart`).** Gera um `.tar.gz` com o banco e as capas via `TarStreamHelper` dentro de `Isolate.run`. A restauração substitui tudo ou mescla (a mescla evita duplicados por `nome_pt`). A restauração procura o arquivo de banco com o nome do modo atual, então um backup feito em debug não restaura em release, e vice-versa.
 
