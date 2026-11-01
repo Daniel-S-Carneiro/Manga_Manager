@@ -91,6 +91,23 @@ void main() {
     });
   });
 
+  group('getAdBlockScript', () {
+    test('leva as listas como JSON e cancela navegação para fora', () async {
+      final js = await BrowserHelper.getAdBlockScript(
+        sessionOriginHost: 'nexustoons.com',
+        adDomains: const ['ravishwalnut.qpon'],
+        allowedDomains: const ['leituramanga.net'],
+      );
+
+      expect(js, contains('const AD_LIST = ["ravishwalnut.qpon"]'));
+      expect(js, contains('"nexustoons.com"'));
+      expect(js, contains('"leituramanga.net"'));
+      // Navigation API: pop-under por script é cancelado antes de sair da página
+      expect(js, contains("addEventListener('navigate'"));
+      expect(js, contains('e.preventDefault()'));
+    });
+  });
+
   group('parseChapter', () {
     test('título em português e inglês', () {
       expect(BrowserHelper.parseChapter(title: 'Capítulo 16'), 16);

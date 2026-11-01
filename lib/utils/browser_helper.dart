@@ -563,6 +563,27 @@ class BrowserHelper {
       window.location.href = href;
     }
   }, true);
+
+  // Pop-under que troca a página inteira por anúncio via script
+  // (location.href = '...') não passa pelo clique acima. A Navigation API do
+  // Chromium avisa ANTES de sair da página e permite cancelar: no Linux (CEF,
+  // que não intercepta navegação) isso evita o leitor voltar recarregando o
+  // capítulo. Só na janela principal; voltar/avançar e recarregar passam.
+  try {
+    if (window.top === window && window.navigation &&
+        typeof window.navigation.addEventListener === 'function') {
+      window.navigation.addEventListener('navigate', function(e) {
+        try {
+          if (!e.cancelable) return;
+          if (e.navigationType === 'traverse' || e.navigationType === 'reload') return;
+          const destino = (e.destination && e.destination.url) || '';
+          if (!destino || /^(about|javascript|data|blob):/i.test(destino)) return;
+          if (isAllowedNav(destino)) return;
+          e.preventDefault();
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
 })();
 ''';
   }
