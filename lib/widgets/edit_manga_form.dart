@@ -1,12 +1,9 @@
 import 'dart:io';
-import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 import '../database/db_helper.dart';
-import '../utils/file_picker_helper.dart';
+import '../utils/capa_helper.dart';
 
 class EditMangaFormWidget extends StatefulWidget {
   final Map<String, dynamic> manga;
@@ -95,32 +92,7 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
       );
 
       if (arquivo != null) {
-        String originalPath = await caminhoLocalDoArquivo(arquivo);
-
-        io.Directory capasDir = await DbHelper().getCapasDirectory();
-
-        bool isWindows = !kIsWeb && Platform.isWindows;
-        String extensao = isWindows ? p.extension(originalPath) : '.webp';
-        String novoNome =
-            'capa_${DateTime.now().millisecondsSinceEpoch}$extensao';
-        String caminhoFinal = '${capasDir.path}/$novoNome';
-
-        if (isWindows) {
-          await File(originalPath).copy(caminhoFinal);
-        } else {
-          var resultCompress = await FlutterImageCompress.compressAndGetFile(
-            originalPath,
-            caminhoFinal,
-            minWidth: 300,
-            minHeight: 450,
-            quality: 85,
-            format: CompressFormat.webp,
-          );
-          if (resultCompress == null) {
-            await File(originalPath).copy(caminhoFinal);
-          }
-        }
-
+        final caminhoFinal = await CapaHelper.gravar(arquivo);
         setState(() => _capaPath = caminhoFinal);
       }
     } catch (e) {

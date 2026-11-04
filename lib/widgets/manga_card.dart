@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../database/db_helper.dart';
 import '../screens/browser_screen.dart';
 import '../screens/linux_browser_screen.dart';
+import '../utils/capa_helper.dart';
 import 'atualizacao_leitura_dialog.dart';
 import 'edit_manga_form.dart';
 
@@ -18,6 +19,8 @@ class MangaCardWidget extends StatelessWidget {
     required this.onDelete,
     required this.onUpdate,
   });
+
+  static const double _alturaCapa = 320;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +44,7 @@ class MangaCardWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            height: 320,
+            height: _alturaCapa,
             child: Stack(
               children: [
                 _buildCapa(context),
@@ -225,13 +228,26 @@ class MangaCardWidget extends StatelessWidget {
       return _placeholderCapa(context);
     }
 
-    return Image.file(
-      File(capaPath),
-      width: double.infinity,
-      height: 320,
-      fit: BoxFit.cover,
-      cacheWidth: 400,
-      errorBuilder: (context, error, stackTrace) => _placeholderCapa(context),
+    // Decodifica no tamanho em que a capa aparece, em pixels reais da tela
+    // (antes era fixo em 400 de largura, pouco para o celular)
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tamanho = CapaHelper.tamanhoDecodificado(
+          constraints.maxWidth,
+          _alturaCapa,
+          MediaQuery.devicePixelRatioOf(context),
+        );
+        return Image.file(
+          File(capaPath),
+          width: double.infinity,
+          height: _alturaCapa,
+          fit: BoxFit.cover,
+          cacheWidth: tamanho.largura,
+          cacheHeight: tamanho.altura,
+          errorBuilder: (context, error, stackTrace) =>
+              _placeholderCapa(context),
+        );
+      },
     );
   }
 
