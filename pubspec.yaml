@@ -68,16 +68,25 @@ dev_dependencies:
   flutter_launcher_icons: "^0.13.1"
   flutter_native_splash: "^2.4.0"
 
+# Mesmo ícone em todas as plataformas: os app_icon*.png e o
+# windows/runner/resources/app_icon.ico são gerados juntos a partir do
+# assets/icon/icon.png (ver CLAUDE.md). Rode "dart run flutter_launcher_icons"
+# depois de trocá-los.
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/manga.png"
-  adaptive_icon_background: "#00000000"
-  adaptive_icon_foreground: "assets/icon/manga.png"
+  image_path: "assets/icon/app_icon.png"
+  # Adaptativo do Android: o sistema recorta em círculo ou quadrado
+  # arredondado; o livro fica dentro da área segura, sobre fundo preto
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/app_icon_adaptativo.png"
+  # O iOS não aceita transparência (ele mesmo arredonda os cantos)
+  remove_alpha_ios: true
   min_sdk_android: 26
+  # Windows desligado: o plugin gera um .ico com um único tamanho (48 px)
   windows:
-    generate: true
-    image_path: "assets/icon/icon.png"
+    generate: false
+    image_path: "assets/icon/app_icon.png"
 
 flutter_native_splash:
   color: "#000000"
@@ -98,7 +107,9 @@ flutter:
   # assets:
   uses-material-design: true
   assets:
-    - assets/icon/
+    # Só o ícone da janela no Linux; os outros arquivos da pasta são fontes
+    # dos ícones e não precisam ir dentro do app
+    - assets/icon/app_icon_256.png
     - assets/images/
     - assets/splash/
 
