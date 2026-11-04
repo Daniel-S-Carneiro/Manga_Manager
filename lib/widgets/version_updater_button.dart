@@ -115,9 +115,11 @@ class _VersionUpdaterButtonState extends State<VersionUpdaterButton> {
     if (_downloadUrl == null) return;
     Navigator.pop(dialogContext); // Fecha o dialog
     await UpdateService.baixarEInstalar(
-      context,
+      context, // Usa o context do Widget
       _downloadUrl!,
-    ); // Usa o context do Widget
+      versaoAtual: _installedVersion,
+      novaVersao: _latestGitVersion,
+    );
   }
 
   void _mostrarDialogoVersao(BuildContext context) {

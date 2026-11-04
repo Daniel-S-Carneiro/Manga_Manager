@@ -8,7 +8,13 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../database/db_helper.dart';
+import '../widgets/atualizacao_dialog.dart';
+
 class UpdateService {
+  /// Versão com que o app abriu da última vez (para avisar que atualizou).
+  static const String kVersaoApp = 'versao_app';
+
   static const String _repoOwner = 'Daniel-S-Carneiro';
   static const String _repoName = 'Manga_Manager';
 
@@ -23,6 +29,10 @@ class UpdateService {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
+
+      if (context.mounted) await _avisarSeAtualizou(context, currentVersion);
+      await _apagarInstaladorBaixado();
+      if (!context.mounted) return;
 
       final response = await http.get(
         Uri.parse(gitApiUrl),
@@ -57,6 +67,43 @@ class UpdateService {
       }
     } catch (e) {
       debugPrint('Erro ao verificar atualizações: $e');
+    }
+  }
+
+  /// O app reabre sozinho depois da atualização: confirma que deu certo.
+  static Future<void> _avisarSeAtualizou(
+    BuildContext context,
+    String versaoAtual,
+  ) async {
+    try {
+      final db = DbHelper();
+      final anterior = await db.getConfig(kVersaoApp);
+      if (anterior == versaoAtual) return;
+      await db.setConfig(kVersaoApp, versaoAtual);
+      if (anterior != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Manga Manager atualizado para a v$versaoAtual.'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Erro ao conferir a versão anterior: $e');
+    }
+  }
+
+  /// O instalador baixado fica na pasta temporária até a próxima abertura
+  /// (enquanto instala, ele mesmo está em uso).
+  static Future<void> _apagarInstaladorBaixado() async {
+    if (kIsWeb || !Platform.isWindows) return;
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final arquivo = File(
+        p.join(tempDir.path, AtualizacaoDialog.nomeInstalador),
+      );
+      if (await arquivo.exists()) await arquivo.delete();
+    } catch (_) {
+      // Ainda em uso pelo instalador: fica para a próxima
     }
   }
 
@@ -138,7 +185,12 @@ class UpdateService {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              baixarEInstalar(context, downloadUrl);
+              baixarEInstalar(
+                context,
+                downloadUrl,
+                versaoAtual: currentVersion,
+                novaVersao: newVersion,
+              );
             },
             child: const Text('Atualizar Automaticamente'),
           ),
@@ -150,7 +202,7 @@ class UpdateService {
   static String _escapePowerShell(String value) => value.replaceAll("'", "''");
 
   /// Inicia um executável elevado. O Windows mostra o UAC para o usuário aceitar.
-  static Future<bool> _iniciarComElevacao(
+  static Future<bool> iniciarComElevacao(
     String exePath, {
     List<String> args = const [],
   }) async {
@@ -170,172 +222,34 @@ class UpdateService {
     return result.exitCode == 0;
   }
 
-  static Future<bool> _reabrirAppComoAdministrador() async {
-    final exeAtual = Platform.resolvedExecutable;
-    final ok = await _iniciarComElevacao(exeAtual);
-    if (ok) {
-      exit(0);
-    }
-    return false;
-  }
-
+  /// Atualiza para a versão do [downloadUrl]. No Windows mostra a tela de
+  /// atualização ([AtualizacaoDialog]): baixa com progresso, pede a permissão
+  /// de administrador e o instalador reabre o app no fim. Nos outros sistemas
+  /// o arquivo (APK ou .tar.gz) abre no navegador.
   static Future<void> baixarEInstalar(
     BuildContext context,
-    String downloadUrl,
-  ) async {
-    final status = ValueNotifier<String>(
-      'Baixando e aplicando atualização em segundo plano...',
-    );
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        content: ValueListenableBuilder<String>(
-          valueListenable: status,
-          builder: (_, mensagem, _) => Row(
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(width: 20),
-              Expanded(child: Text(mensagem)),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    try {
-      final tempDir = await getTemporaryDirectory();
-      if (!context.mounted) return;
-
-      final filePath = p.join(tempDir.path, 'manga_manager_update.exe');
-      final response = await http.get(Uri.parse(downloadUrl));
-      if (!context.mounted) return;
-
-      if (response.statusCode != 200) {
-        Navigator.pop(context);
-        status.dispose();
-        _mostrarErroDialog(context, 'Falha ao baixar o arquivo de atualização.');
-        return;
-      }
-
-      final file = File(filePath);
-      await file.writeAsBytes(response.bodyBytes);
-      if (!context.mounted) return;
-
-      if (!kIsWeb && Platform.isWindows) {
-        status.value =
-            'Aguardando permissão de administrador. Aceite o aviso do Windows...';
-
-        final elevado = await _iniciarComElevacao(filePath, args: ['/S']);
-        if (!context.mounted) return;
-
-        if (elevado) {
-          exit(0);
-        }
-
-        Navigator.pop(context);
-        status.dispose();
-        _mostrarDialogoPermissaoAdmin(context, filePath);
-        return;
-      }
-
-      Navigator.pop(context);
-      status.dispose();
+    String downloadUrl, {
+    required String versaoAtual,
+    required String novaVersao,
+  }) async {
+    if (kIsWeb || !Platform.isWindows) {
       final uri = Uri.parse(downloadUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
-    } catch (e) {
-      if (!context.mounted) return;
-      Navigator.pop(context);
-      status.dispose();
-      _mostrarErroDialog(context, 'Erro ao executar a atualização: $e');
+      return;
     }
-  }
 
-  static void _mostrarDialogoPermissaoAdmin(
-    BuildContext context,
-    String instaladorPath,
-  ) {
-    showDialog(
+    await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Permissão de administrador'),
-        content: const Text(
-          'O instalador precisa de permissão de administrador. '
-          'Se o aviso do Windows foi cancelado, aceite-o na próxima tentativa '
-          'ou reabra o Manga Manager como administrador e atualize de novo.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              final ok = await _reabrirAppComoAdministrador();
-              if (!ok && context.mounted) {
-                _mostrarErroDialog(
-                  context,
-                  'A permissão foi recusada. Abra o app pelo menu de contexto: '
-                  '"Executar como administrador".',
-                );
-              }
-            },
-            child: const Text('Reabrir como administrador'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const AlertDialog(
-                  content: Row(
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(width: 20),
-                      Expanded(
-                        child: Text(
-                          'Aguardando permissão de administrador...',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-              final elevado = await _iniciarComElevacao(
-                instaladorPath,
-                args: ['/S'],
-              );
-              if (!context.mounted) return;
-              if (elevado) {
-                exit(0);
-              }
-              Navigator.pop(context);
-              _mostrarDialogoPermissaoAdmin(context, instaladorPath);
-            },
-            child: const Text('Tentar de novo'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static void _mostrarErroDialog(BuildContext context, String mensagem) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Erro na Atualização'),
-        content: Text(mensagem),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('OK'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (_) => AtualizacaoDialog(
+        versaoAtual: versaoAtual,
+        novaVersao: novaVersao,
+        urlDownload: downloadUrl,
+        iniciarElevado: (exe, args) => iniciarComElevacao(exe, args: args),
+        pastaTemporaria: getTemporaryDirectory,
+        encerrarApp: () => exit(0),
       ),
     );
   }
