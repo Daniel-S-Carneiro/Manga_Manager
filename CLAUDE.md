@@ -20,7 +20,7 @@ flutter test --plain-name "nome do teste"
 build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/ (exige árvore Git limpa)
 ```
 
-- Os testes cobrem lógica pura e diálogos (`BrowserHelper`, `LeitorBase`, `ConfigRolagem`, `PainelRolagem`, `atualizacao_leitura_dialog.dart`). Nada que abra o banco ou o WebView é testado automaticamente; isso precisa de teste manual no app.
+- Os testes cobrem lógica pura e diálogos (`BrowserHelper`, `LeitorBase`, `ConfigRolagem`, `PainelRolagem`, `AtualizacaoDialog`, `CapaHelper`, `atualizacao_leitura_dialog.dart`) e a restauração do backup, que abre um banco SQLite de verdade em pastas temporárias. O resto do que usa o banco, e tudo o que usa o WebView, precisa de teste manual no app.
 - Em `testWidgets`, código que chama canal de plataforma (banco, `window_manager`, `path_provider`) precisa de `tester.runAsync(...)`. Sem isso o teste espera para sempre uma resposta que nunca chega.
 - `build_installer.cmd` lê a versão da linha `version:` do `pubspec.yaml` (parte antes do `+`) e passa para o `installer.nsi` como `APP_VERSION`. Precisa do NSIS em `C:\Program Files (x86)\NSIS\makensis.exe`.
 
@@ -48,12 +48,16 @@ wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull --ff-onl
 
 **Banco (`lib/database/db_helper.dart`).** Singleton `DbHelper` sobre sqflite. No desktop usa FFI, e `setupDatabaseFactory()` em `main()` precisa rodar antes de qualquer acesso. Os registros são `Map<String, dynamic>` puros, sem classes de modelo.
 - Tabela `mangas`: `id, nome_pt, nome_en, capitulo, link_url, capa_path, status_leitura, ordem_leitura`.
-- Tabela `configuracoes`: chave/valor usada para **todas** as preferências (`tema`, `zoom`, `barra_x`, `barra_y`, `barra_vertical`, `rolagem_ativa`, `rolagem_intensidade`, `rolagem_suavidade`, `user_agent_custom`, `adblock_domains_list`, `allowed_domains_list`, `browser_helper_last_update`).
+- Tabela `configuracoes`: chave/valor usada para **todas** as preferências (`tema`, `zoom`, `barra_x`, `barra_y`, `barra_vertical`, `rolagem_ativa`, `rolagem_intensidade`, `rolagem_suavidade`, `versao_app`, `user_agent_custom`, `adblock_domains_list`, `allowed_domains_list`, `browser_helper_last_update`).
 - O schema está na versão 2. Mudança de schema exige subir a `version` em `_initDatabase` e adicionar um passo em `_onUpgrade`, porque usuários instalados já têm bancos antigos.
 - Debug e release usam dados separados por `kDebugMode`: `manga_manager_debug.db` / `manga_manager_capas_debug` contra `manga_manager.db` / `manga_manager_capas`. As capas ficam como arquivos em Documentos e o banco guarda o caminho (`capa_path`). No Windows o banco fica em `%APPDATA%\com.example\manga_manager`, e o `installer.nsi` depende desse caminho para limpar dados.
 - `lockDatabase()`/`unlockDatabase()`: durante backup/restauração qualquer acesso a `database` lança exceção.
 
 **Tela principal (`MainScreen` em `lib/main.dart`).** Paginação de 30 em 30 com scroll infinito e busca com debounce. A reordenação por arrasto fica bloqueada durante uma busca ou antes de carregar a lista inteira, porque `reordenarMangas` regrava `ordem_leitura` a partir da lista em memória. Os cards se atualizam individualmente com `_atualizarMangaEspecifico`.
+
+**Capas (`lib/utils/capa_helper.dart`).**
+- **Gravação** (`CapaHelper.gravar`, usado pelos dois formulários): no Windows o arquivo original é copiado. No Android e no Linux vira WebP (qualidade 90), reduzido até um dos lados chegar a 720×1080; o `flutter_image_compress` nunca aumenta. Antes eram 300×450, e o celular (2,75×) esticava a capa umas duas vezes. As capas gravadas antes disso continuam pequenas até serem escolhidas de novo.
+- **No card** (`CapaHelper.tamanhoDecodificado`): a capa é decodificada no tamanho em que aparece, em pixels reais (tamanho lógico × `devicePixelRatio`, que já inclui o zoom do app). Quando o quadro é mais estreito que uma capa, a altura manda; senão, a largura. O valor é arredondado de 64 em 64, para não decodificar de novo a cada pixel ao redimensionar a janela.
 
 **Leitor embutido.** `MangaCardWidget._abrirLink` (`lib/widgets/manga_card.dart`) abre `LinuxBrowserScreen` (webview_cef) no Linux e `BrowserScreen` (flutter_inappwebview, WebView2 no Windows) nas demais plataformas. O flutter_inappwebview estável não tem Linux; o suporte só existe em beta, com WPE WebKit, que não está no apt do Ubuntu.
 - **Comum às duas telas:** fica no mixin `LeitorBase` (`lib/screens/leitor_base.dart`): URL permitida (por **host**), URL atual e última permitida, detecção do capítulo (título, URL e cabeçalho), barra flutuante (carregar, salvar, manter dentro da tela), painel da rolagem do mouse, tela cheia/F11 e o resultado ao fechar (`{'url', 'capitulo'}`). Cada tela só cria o seu navegador e liga os eventos dele a `registrarUrl`, `aplicarCapituloDoTexto` e `detectarCapituloDaPagina`. **Comportamento novo do leitor vai para o `LeitorBase`**, não para uma das telas.
@@ -80,13 +84,41 @@ wsl -d Ubuntu -- bash -c 'cd ~/StudioProjects/manga_manager && git pull --ff-onl
 - **Tentativas que não funcionaram no Linux:** o `zikzak_inappwebview` (fork com WPE) travou com `Gtk-CRITICAL: gtk_widget_draw` logo depois do `onWebViewCreated`, testado no WSL. Também não dá para ter o `flutter_inappwebview` estável e o beta juntos no `pubspec`.
 - O card compara o retorno com o que está salvo (`MudancasLeitura` em `lib/widgets/atualizacao_leitura_dialog.dart`) e **sempre pede confirmação** antes de gravar o link ou o capítulo, porque a detecção do capítulo pode errar.
 
-**Backup (`lib/services/backup_service.dart`).** Gera um `.tar.gz` com o banco e as capas via `TarStreamHelper` dentro de `Isolate.run`. A restauração substitui tudo ou mescla (a mescla evita duplicados por `nome_pt`). A restauração procura o arquivo de banco com o nome do modo atual, então um backup feito em debug não restaura em release, e vice-versa.
+**Backup (`lib/services/backup_service.dart`).** Gera um `.tar.gz` com o banco na raiz e as capas em `capas/`, via `TarStreamHelper` dentro de `Isolate.run`. A restauração substitui tudo ou mescla (a mescla evita duplicados por `nome_pt`).
+- **Qualquer origem:** o backup pode vir de outro modo (app instalado ou debug) e de outro sistema (Windows → celular). O `bancoDoBackup` prefere o banco do modo atual, mas aceita o outro.
+- **Caminho das capas:** o banco guarda o caminho completo do aparelho de origem (ex.: `C:\...\manga_manager_capas/capa_1.jpg`). Depois de restaurar, as capas que vieram no backup passam a apontar para a pasta de capas daqui (`DbHelper.caminhoCapaRestaurada`, que separa o nome com barra normal ou invertida). Antes disso, um backup do Windows restaurado no celular ficava sem capas.
+- **Banco travado:** a restauração roda com `lockDatabase()`, então o `database` lança exceção; o código dela usa `bancoEmManutencao()`. Antes, o mesclar chamava `database` e sempre falhava.
+- **Substituir:** apaga os restos de diário do SQLite (`-journal`, `-wal`, `-shm`) antes de copiar o banco novo por cima.
+- **Testes** (`test/backup_service_test.dart`): restauram de verdade com o `sqflite_common_ffi`, trocando o `path_provider` por pastas temporárias e simulando o computador (`debugDefaultTargetPlatformOverride`). Nos testes o Flutter finge ser Android, e o `DbHelper` iria para a pasta de bancos do sqflite. Uma trava no `setUp` falha o teste se o banco ou as capas apontarem para fora da pasta temporária, porque o "substituir" apaga dados.
+- No Windows a extração passa os nomes dos arquivos para minúsculas (`p.canonicalize`); como o sistema de arquivos não diferencia maiúsculas, isso não quebra nada.
 
-**Atualização automática.** `lib/services/update_service.dart` e `lib/widgets/version_updater_button.dart` consultam a última release do GitHub, comparam a tag (sem o `v`) com a versão do app (`pubspec.yaml`) e escolhem o asset pela extensão: `.exe` no Windows, `.apk` no Android e `.tar.gz` no Linux. As releases precisam manter essas extensões. No Windows o instalador baixado roda elevado e silencioso (`/S`) via PowerShell `Start-Process -Verb RunAs`.
+**Atualização automática.** `lib/services/update_service.dart` e `lib/widgets/version_updater_button.dart` consultam a última release do GitHub, comparam a tag (sem o `v`) com a versão do app (`pubspec.yaml`) e escolhem o asset pela extensão: `.exe` no Windows, `.apk` no Android e `.tar.gz` no Linux. As releases precisam manter essas extensões. Fora do Windows o arquivo abre no navegador.
+- **Windows:** a tela `AtualizacaoDialog` (`lib/widgets/atualizacao_dialog.dart`) baixa o instalador com progresso (porcentagem, MB e velocidade) e confere se veio inteiro e se começa com `MZ`.
+  - Depois pede a permissão de administrador (PowerShell `Start-Process -Verb RunAs`) e abre o instalador com `/ATUALIZAR`. Então mostra "Fechando para instalar" e fecha o app.
+  - Permissão recusada ou falha no download: a tela mostra o erro e "Tentar de novo". Com o instalador já baixado, só pede a permissão de novo.
+  - A gravação do download é síncrona, pedaço a pedaço. Com gravação assíncrona, os testes de widget (relógio falso) travavam esperando o arquivo fechar.
+- **Modo de atualização do instalador:** vale com `/ATUALIZAR` ou com `/S`, que é como o app chamava até a v2.1.0.
+  - Não faz perguntas e mantém os dados.
+  - Mostra só a página de progresso ("Atualizando o Manga Manager") e espera o app soltar o `.exe` (até 30 s).
+  - No fim, abre o app de novo pelo `explorer.exe`, para não herdar o privilégio de administrador do instalador. A instalação normal tem a opção "Abrir o Manga Manager" na última página, que abre do mesmo jeito.
+  - Refaz o atalho da área de trabalho só se ele já existia.
+  - Avisa o Windows (`SHChangeNotify`) para trocar os ícones em cache.
+- **Ao abrir:** o app compara a versão com a chave `versao_app` e, se mudou, mostra "Manga Manager atualizado para a vX". Também apaga o instalador que ficou na pasta temporária.
+- **Testes:** em `testWidgets`, não dê `await` no `cancel()` de uma assinatura de stream nem no `close()` de um `StreamController` já cancelado. Eles devolvem um futuro da zona raiz, que o relógio falso nunca conclui, e o teste trava sem respeitar o `@Timeout`.
 
 ## Armadilhas
 
 - `installer.nsi` está em **Windows-1252**, não em UTF-8, e as ferramentas Edit/Write recusam o arquivo. Edite preservando a codificação, por exemplo com PowerShell e `[System.Text.Encoding]::GetEncoding(1252)`.
+  - O instalador grava na chave de desinstalação os dados do Painel de Controle: ícone (`DisplayIcon` aponta para o `.exe`), tamanho (`EstimatedSize`, calculado com `GetSize`), publicador, site e comentário.
+  - Todo `MessageBox` precisa de `/SD` (resposta no modo silencioso): sem ele, a caixa aparece mesmo com `/S`. Era a janela de "OK" que surgia no meio da atualização.
+  - O desinstalador apaga só os tipos de arquivo que o instalador põe na pasta (`*.dll`, `*.pak`, `*.dat`, `*.bin`, `*.json`) e as pastas `data`, `locales` e `manga_manager.exe.WebView2`. Nunca use `RMDir /r` no `$INSTDIR`, que o usuário pode ter trocado por uma pasta com outras coisas.
+  - O `app_icon.ico` também é o ícone do instalador e do desinstalador (`MUI_ICON`/`MUI_UNICON`).
+- **Ícone do app (igual em todas as plataformas):** quadrado preto de cantos arredondados com o livro ocupando quase toda a largura. Tudo foi gerado junto a partir do `assets/icon/icon.png`; os outros arquivos da pasta (`ACBam`, `HhVze`, `icon2`, `manga`) são versões antigas do desenho.
+  - `windows/runner/resources/app_icon.ico`: 10 tamanhos (16 a 256 px; BMP de 32 bits até 128 e PNG no de 256), com o livro mais justo até 48 px. O `Runner.rc` embute esse arquivo no `.exe`. Os atalhos e o Painel de Controle dependem do instalador. Não gere o `.ico` pelo `flutter_launcher_icons`, que no Windows faz um único tamanho (48 px); por isso o `windows.generate` dele está `false`.
+  - `assets/icon/app_icon.png` (1024 px): mestre do `flutter_launcher_icons`, que gera o legado do Android e o iOS (`remove_alpha_ios`, porque o iOS não aceita transparência).
+  - `assets/icon/app_icon_adaptativo.png`: frente do ícone adaptativo do Android, com o livro em 56% da largura para caber no recorte em círculo. O fundo é `#000000`.
+  - `assets/icon/app_icon_256.png`: ícone da janela no Linux. É o único arquivo da pasta que vai dentro do app (`pubspec`, `assets`); o `my_application.cc` o lê de `data/flutter_assets` ao lado do executável.
+  - Depois de trocar os PNGs, rode `dart run flutter_launcher_icons` (Android e iOS). O `dart run flutter_native_splash:create` só é necessário se o `assets/splash/splash.png` ou as cores do splash mudarem.
 - Scripts `.sh` precisam de fim de linha LF, garantido pelo `.gitattributes`. Com CRLF o bash do WSL falha.
 - **Android:** usa Gradle 9.3.1, AGP 9.1.0 e Kotlin 2.4.0, as mesmas versões dos modelos do Flutter 3.47 (`templateDefaultGradleVersion` e afins em `packages/flutter_tools/lib/src/android/gradle_utils.dart` do SDK), com `android.builtInKotlin=true` (o app não aplica `kotlin-android`).
   - O `android/gradle.properties` tem `android.r8.proguardAndroidTxt.disallowed=false`. É **temporário**, só enquanto o `flutter_inappwebview_android` estável usar `proguard-android.txt`.
