@@ -23,6 +23,64 @@ class DbHelper {
   void lockDatabase() => _isLocked = true;
   void unlockDatabase() => _isLocked = false;
 
+  /// Nome do arquivo de banco de cada modo (o debug usa dados separados).
+  static const String nomeBancoRelease = 'manga_manager.db';
+  static const String nomeBancoDebug = 'manga_manager_debug.db';
+
+  /// O banco aberto para o backup e a restauração, que rodam com o banco
+  /// travado para o resto do app ([database] lança exceção nesse período).
+  Future<Database> bancoEmManutencao() async {
+    if (_database != null && _database!.isOpen) return _database!;
+    _database = await _initDatabase();
+    return _database!;
+  }
+
+  /// Nome do arquivo no fim de um caminho, com barra normal ou invertida:
+  /// o banco pode vir de outro sistema (um backup do Windows no celular).
+  static String nomeDoArquivo(String caminho) =>
+      caminho.split(RegExp(r'[\\/]')).last;
+
+  /// Caminho da capa depois de restaurar um backup. O banco guarda o caminho
+  /// completo do aparelho de origem (ex.: `C:\...\manga_manager_capas/capa_1.jpg`);
+  /// se a capa veio no backup, passa a apontar para [pastaCapas] daqui.
+  /// [capasDoBackup] vai do nome em minúsculas para o nome do arquivo.
+  static String? caminhoCapaRestaurada(
+    String? original,
+    String pastaCapas,
+    Map<String, String> capasDoBackup,
+  ) {
+    if (original == null || original.isEmpty) return original;
+    final nome = capasDoBackup[nomeDoArquivo(original).toLowerCase()];
+    return nome == null ? original : p.join(pastaCapas, nome);
+  }
+
+  /// Depois de substituir o banco pelo do backup: as capas que vieram nele
+  /// passam a apontar para [pastaCapas]. Devolve quantas mudaram.
+  Future<int> corrigirCaminhosDasCapas(
+    String pastaCapas,
+    Map<String, String> capasDoBackup,
+  ) async {
+    final db = await bancoEmManutencao();
+    final mangas = await db.query('mangas', columns: ['id', 'capa_path']);
+    var corrigidos = 0;
+    await db.transaction((txn) async {
+      for (final manga in mangas) {
+        final atual = manga['capa_path'] as String?;
+        final novo = caminhoCapaRestaurada(atual, pastaCapas, capasDoBackup);
+        if (novo != atual) {
+          await txn.update(
+            'mangas',
+            {'capa_path': novo},
+            where: 'id = ?',
+            whereArgs: [manga['id']],
+          );
+          corrigidos++;
+        }
+      }
+    });
+    return corrigidos;
+  }
+
   Future<io.Directory> getCapasDirectory() async {
     final appDir = await getApplicationDocumentsDirectory();
     final folderName = kDebugMode
@@ -36,7 +94,7 @@ class DbHelper {
   }
 
   Future<String> getDatabasePathString() async {
-    String dbName = kDebugMode ? 'manga_manager_debug.db' : 'manga_manager.db';
+    String dbName = kDebugMode ? nomeBancoDebug : nomeBancoRelease;
     if (kIsWeb) return dbName;
 
     if (defaultTargetPlatform == TargetPlatform.windows ||
@@ -90,7 +148,8 @@ class DbHelper {
     final List<Map<String, dynamic>> tempMangas = await tempDb.query('mangas');
     await tempDb.close();
 
-    final currentDb = await database;
+    // Roda com o banco travado para o resto do app (restauração em andamento)
+    final currentDb = await bancoEmManutencao();
     int inseridos = 0;
     final realCapasDir = await getCapasDirectory();
 
@@ -100,6 +159,9 @@ class DbHelper {
         mapaCapas[p.basename(entidade.path).toLowerCase()] = entidade;
       }
     }
+    final nomesCapas = {
+      for (final e in mapaCapas.entries) e.key: p.basename(e.value.path),
+    };
 
     for (var manga in tempMangas) {
       List<Map> existe = await currentDb.query(
@@ -110,20 +172,25 @@ class DbHelper {
 
       if (existe.isEmpty) {
         var novoManga = Map<String, dynamic>.from(manga)..remove('id');
+
+        final capaPath = manga['capa_path'] as String?;
+        final arquivoCapa = capaPath == null || capaPath.isEmpty
+            ? null
+            : mapaCapas[nomeDoArquivo(capaPath).toLowerCase()];
+        if (arquivoCapa != null && arquivoCapa.existsSync()) {
+          await arquivoCapa.copy(
+            p.join(realCapasDir.path, p.basename(arquivoCapa.path)),
+          );
+          // O caminho no backup é o do aparelho de origem
+          novoManga['capa_path'] = caminhoCapaRestaurada(
+            capaPath,
+            realCapasDir.path,
+            nomesCapas,
+          );
+        }
+
         await currentDb.insert('mangas', novoManga);
         inseridos++;
-
-        final capaPath = manga['capa_path'];
-        if (capaPath != null && capaPath.toString().isNotEmpty) {
-          final nomeArquivoCapa = p.basename(capaPath.toString());
-          io.File? arquivoCapaReal = mapaCapas[nomeArquivoCapa.toLowerCase()];
-
-          if (arquivoCapaReal != null && arquivoCapaReal.existsSync()) {
-            await arquivoCapaReal.copy(
-              p.join(realCapasDir.path, nomeArquivoCapa),
-            );
-          }
-        }
       }
     }
     return inseridos;

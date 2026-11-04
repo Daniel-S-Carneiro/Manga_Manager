@@ -68,6 +68,29 @@ class BackupService {
     }
   }
 
+  /// O banco dentro do backup. Prefere o do modo atual, mas aceita o do outro:
+  /// um backup do app instalado (`manga_manager.db`) também restaura no debug,
+  /// e o contrário também.
+  static io.File? bancoDoBackup(List<io.File> arquivos, {required bool debug}) {
+    final preferidos = debug
+        ? [DbHelper.nomeBancoDebug, DbHelper.nomeBancoRelease]
+        : [DbHelper.nomeBancoRelease, DbHelper.nomeBancoDebug];
+    for (final nome in preferidos) {
+      for (final arquivo in arquivos) {
+        if (p.basename(arquivo.path).toLowerCase() == nome) return arquivo;
+      }
+    }
+    return null;
+  }
+
+  static bool _ehArquivoDeBanco(String caminho) {
+    final nome = p.basename(caminho).toLowerCase();
+    return nome.endsWith('.db') ||
+        nome.endsWith('.db-journal') ||
+        nome.endsWith('.db-wal') ||
+        nome.endsWith('.db-shm');
+  }
+
   // ==========================================
   // FUNÇÕES PÚBLICAS
   // ==========================================
@@ -138,22 +161,18 @@ class BackupService {
         );
       }
 
-      io.File? dbExtraido;
-      final dbName = kDebugMode ? 'manga_manager_debug.db' : 'manga_manager.db';
-
-      for (var entity in extraidoDir.listSync(recursive: true)) {
-        if (entity is io.File &&
-            p.basename(entity.path).toLowerCase() == dbName.toLowerCase()) {
-          dbExtraido = entity;
-          break;
-        }
-      }
+      final arquivos = extraidoDir
+          .listSync(recursive: true)
+          .whereType<io.File>()
+          .toList();
+      final dbExtraido = bancoDoBackup(arquivos, debug: kDebugMode);
 
       if (dbExtraido == null) {
         throw Exception(
           "Banco de dados não encontrado no pacote de restauração.",
         );
       }
+      _logDebug('Banco do backup: ${p.basename(dbExtraido.path)}');
 
       if (merge) {
         await dbHelper.reopenDatabase();
@@ -166,6 +185,12 @@ class BackupService {
         await dbHelper.closeDatabase();
         final dbRealPath = await dbHelper.getDatabasePathString();
 
+        // Um diário do SQLite que sobrasse do banco antigo seria aplicado no
+        // banco novo e o corromperia
+        for (final sufixo in ['-journal', '-wal', '-shm']) {
+          final resto = io.File('$dbRealPath$sufixo');
+          if (resto.existsSync()) resto.deleteSync();
+        }
         await dbExtraido.copy(dbRealPath);
 
         final capasDirReal = await dbHelper.getCapasDirectory();
@@ -174,13 +199,20 @@ class BackupService {
         }
         capasDirReal.createSync(recursive: true);
 
-        for (var entity in extraidoDir.listSync(recursive: true)) {
-          if (entity is io.File &&
-              p.basename(entity.path).toLowerCase() != dbName.toLowerCase()) {
-            String nomeArquivo = p.basename(entity.path);
-            await entity.copy(p.join(capasDirReal.path, nomeArquivo));
-          }
+        final capasDoBackup = <String, String>{};
+        for (final arquivo in arquivos) {
+          if (_ehArquivoDeBanco(arquivo.path)) continue;
+          final nome = p.basename(arquivo.path);
+          await arquivo.copy(p.join(capasDirReal.path, nome));
+          capasDoBackup[nome.toLowerCase()] = nome;
         }
+
+        // O banco guarda o caminho das capas no aparelho de origem
+        final corrigidas = await dbHelper.corrigirCaminhosDasCapas(
+          capasDirReal.path,
+          capasDoBackup,
+        );
+        _logDebug('Capas apontadas para ${capasDirReal.path}: $corrigidas');
         return 'Backup substituído e restaurado com sucesso!';
       }
     } finally {
