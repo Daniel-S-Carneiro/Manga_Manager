@@ -1,47 +1,83 @@
 import 'dart:io' as io;
+import 'dart:math';
+
 import 'package:tar/tar.dart';
 import 'package:path/path.dart' as p;
 
 class TarStreamHelper {
-  /// Retorna um Stream de [TarEntry] lendo os arquivos do banco e das capas via Stream
-  static Stream<TarEntry> _buildTarEntries(
-    String dbPath,
-    String capasDirPath,
-  ) async* {
-    // 1. Adicionar Banco de Dados
-    final dbFile = io.File(dbPath);
-    if (dbFile.existsSync()) {
-      yield TarEntry(
+  /// Tamanho de cada leitura: o mesmo do `File.openRead()`.
+  static const int _pedaco = 64 * 1024;
+
+  /// Lê [arquivo] em pedaços, fechando-o no fim, num erro ou se quem lê
+  /// desistir.
+  ///
+  /// Substitui o `File.openRead()`. Nele, um erro de leitura no meio (arquivo
+  /// travado por outro programa, disco com defeito) deixa o arquivo aberto e
+  /// o stream nunca termina (no `_FileStream` do Dart SDK, o
+  /// `_readInProgress` fica `true` e o `_closeFile` não fecha). Como a
+  /// gravação do backup só recebe o erro depois de cancelar a leitura, o
+  /// backup ficava parado para sempre.
+  ///
+  /// Com [tamanho], lê só esses bytes e falha se o arquivo for menor: o tar
+  /// grava o tamanho no cabeçalho, antes do conteúdo.
+  static Stream<List<int>> lerArquivo(io.File arquivo, {int? tamanho}) async* {
+    final aberto = await arquivo.open();
+    try {
+      var lidos = 0;
+      while (tamanho == null || lidos < tamanho) {
+        final falta = tamanho == null ? _pedaco : min(_pedaco, tamanho - lidos);
+        final pedaco = await aberto.read(falta);
+        if (pedaco.isEmpty) break;
+        lidos += pedaco.length;
+        yield pedaco;
+      }
+      if (tamanho != null && lidos < tamanho) {
+        throw io.FileSystemException(
+          'O arquivo diminuiu durante o backup',
+          arquivo.path,
+        );
+      }
+    } finally {
+      await aberto.close();
+    }
+  }
+
+  /// Entradas do backup: o banco na raiz e as capas em `capas/`. A lista e
+  /// os tamanhos são lidos antes de gravar: um erro aqui (arquivo que sumiu,
+  /// sem permissão) acontece antes de criar o arquivo de saída. Um erro
+  /// dentro do stream de entradas escaparia do `tarWriter`, que lê esse
+  /// stream sem esperar o resultado.
+  static List<TarEntry> _entradas(String dbPath, String capasDirPath) {
+    TarEntry entrada(String nome, io.File arquivo) {
+      final tamanho = arquivo.lengthSync();
+      return TarEntry(
         TarHeader(
-          name: p.basename(dbPath),
+          name: nome,
           mode: 420, // 0644 em octal (permissão padrão)
-          size: dbFile.lengthSync(),
-          modified: dbFile.lastModifiedSync(),
+          size: tamanho,
+          modified: arquivo.lastModifiedSync(),
         ),
-        dbFile.openRead(), // Agora aceita o stream perfeitamente!
+        lerArquivo(arquivo, tamanho: tamanho),
       );
     }
 
-    // 2. Adicionar Capas
+    final entradas = <TarEntry>[];
+    final dbFile = io.File(dbPath);
+    if (dbFile.existsSync()) {
+      entradas.add(entrada(p.basename(dbPath), dbFile));
+    }
+
     final capasDir = io.Directory(capasDirPath);
     if (capasDir.existsSync()) {
-      await for (var entity in capasDir.list(recursive: true)) {
+      for (final entity in capasDir.listSync(recursive: true)) {
         if (entity is io.File) {
           final relPath =
               'capas/${p.relative(entity.path, from: capasDirPath).replaceAll('\\', '/')}';
-
-          yield TarEntry(
-            TarHeader(
-              name: relPath,
-              mode: 420, // 0644 em octal
-              size: entity.lengthSync(),
-              modified: entity.lastModifiedSync(),
-            ),
-            entity.openRead(), // Stream direto do disco
-          );
+          entradas.add(entrada(relPath, entity));
         }
       }
     }
+    return entradas;
   }
 
   /// Executa a compressão via Streaming (Arquivos -> Tar -> Gzip -> Disco)
@@ -50,13 +86,10 @@ class TarStreamHelper {
     required String capasDirPath,
     required String tarGzPath,
   }) async {
-    final tarGzFile = io.File(tarGzPath);
-    final outputSink = tarGzFile.openWrite();
+    final entradas = _entradas(dbPath, capasDirPath);
+    final outputSink = io.File(tarGzPath).openWrite();
 
-    final tarStream = _buildTarEntries(
-      dbPath,
-      capasDirPath,
-    ).transform(tarWriter);
+    final tarStream = Stream.fromIterable(entradas).transform(tarWriter);
     final gzipStream = tarStream.transform(io.GZipCodec().encoder);
 
     await gzipStream.pipe(outputSink);
@@ -68,7 +101,7 @@ class TarStreamHelper {
     required String tarGzPath,
     required String destPath,
   }) async {
-    final inputStream = io.File(tarGzPath).openRead();
+    final inputStream = lerArquivo(io.File(tarGzPath));
     final tarStream = inputStream.transform(io.GZipCodec().decoder);
     final reader = TarReader(tarStream);
 

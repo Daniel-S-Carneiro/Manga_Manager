@@ -94,9 +94,13 @@ class BackupService {
   // ==========================================
   // FUNÇÕES PÚBLICAS
   // ==========================================
-  Future<String> exportBackup(String saveFileFinalPath) async {
+  /// Gera o backup (.tar.gz) direto em [destino]. Se falhar no meio, apaga o
+  /// arquivo pela metade.
+  Future<String> exportBackup(String destino) async {
     final dbHelper = DbHelper();
     dbHelper.lockDatabase();
+    var gravacaoIniciada = false;
+    var concluido = false;
 
     try {
       final dbPath = await dbHelper.getDatabasePathString();
@@ -104,17 +108,12 @@ class BackupService {
 
       await dbHelper.closeDatabase();
 
-      final tempDir = await getTemporaryDirectory();
-      final tempTarGzPath = p.join(
-        tempDir.path,
-        'temp_backup_${DateTime.now().millisecondsSinceEpoch}.tar.gz',
-      );
-
+      gravacaoIniciada = true;
       final resultPath = await Isolate.run(
         () => _compressIsolate({
           'dbPath': dbPath,
           'capasDirPath': capasDir.path,
-          'tarGzPath': tempTarGzPath,
+          'tarGzPath': destino,
         }),
       );
 
@@ -124,13 +123,32 @@ class BackupService {
         );
       }
 
-      await io.File(resultPath).copy(saveFileFinalPath);
-      io.File(resultPath).deleteSync();
-
-      return saveFileFinalPath;
+      concluido = true;
+      return destino;
     } finally {
+      if (gravacaoIniciada && !concluido) {
+        await _apagarArquivoPelaMetade(io.File(destino));
+      }
       await dbHelper.reopenDatabase();
       dbHelper.unlockDatabase();
+    }
+  }
+
+  /// Apaga o backup que falhou no meio. Num erro, o Dart fecha o arquivo sem
+  /// esperar o fechamento terminar, e no Windows um arquivo aberto não pode
+  /// ser apagado: por isso tenta algumas vezes.
+  static Future<void> _apagarArquivoPelaMetade(io.File arquivo) async {
+    for (var tentativa = 1; tentativa <= 5; tentativa++) {
+      try {
+        if (arquivo.existsSync()) arquivo.deleteSync();
+        return;
+      } on io.FileSystemException catch (e) {
+        if (tentativa == 5) {
+          _logDebug('Não deu para apagar o backup pela metade: $e');
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
     }
   }
 

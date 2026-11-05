@@ -163,6 +163,102 @@ void main() {
     expect(deNovo, contains('0 novos'));
   });
 
+  group('exportar', () {
+    Future<File> capaNoApp() async {
+      await DbHelper().database; // cria o banco do app
+      final capas = await DbHelper().getCapasDirectory();
+      capas.createSync(recursive: true);
+      return File(p.join(capas.path, 'capa_1.jpg'))
+        ..writeAsBytesSync([7, 8, 9]);
+    }
+
+    test('grava direto no destino, sem cópia na pasta temporária', () async {
+      await capaNoApp();
+      final destino = p.join(raiz.path, 'saida', 'manga_backup.tar.gz');
+      Directory(p.dirname(destino)).createSync();
+
+      expect(await BackupService().exportBackup(destino), destino);
+
+      final conferir = p.join(raiz.path, 'conferir');
+      await TarStreamHelper.extractTarGz(
+        tarGzPath: destino,
+        destPath: conferir,
+      );
+      final nomeBanco = p.basename(await DbHelper().getDatabasePathString());
+      expect(File(p.join(conferir, nomeBanco)).existsSync(), isTrue);
+      expect(File(p.join(conferir, 'capas', 'capa_1.jpg')).readAsBytesSync(), [
+        7,
+        8,
+        9,
+      ]);
+
+      // Antes o backup era gerado na pasta temporária e copiado
+      final temp = Directory(p.join(raiz.path, 'temp'));
+      final sobras = temp.existsSync() ? temp.listSync() : <FileSystemEntity>[];
+      expect(sobras, isEmpty);
+      // O banco volta a funcionar
+      await DbHelper().database;
+    });
+
+    test(
+      'erro no meio não deixa o arquivo pela metade',
+      () async {
+        final capa = await capaNoApp();
+        // Trava a capa: a leitura dela falha no meio do backup
+        final trava = capa.openSync(mode: FileMode.append)
+          ..lockSync(FileLock.exclusive);
+        final destino = p.join(raiz.path, 'manga_backup.tar.gz');
+        try {
+          await expectLater(
+            BackupService().exportBackup(destino),
+            throwsA(isA<Exception>()),
+          );
+        } finally {
+          trava
+            ..unlockSync()
+            ..closeSync();
+        }
+
+        expect(File(destino).existsSync(), isFalse);
+        await DbHelper().database; // destravado e reaberto
+      },
+      // A trava de arquivo só impede a leitura no Windows (no Linux ela é
+      // apenas um aviso entre programas)
+      skip: !Platform.isWindows,
+    );
+  });
+
+  group('lerArquivo', () {
+    // No Windows um arquivo aberto não pode ser apagado: apagar no fim prova
+    // que a leitura fechou o arquivo
+    File arquivoDe(int tamanho) =>
+        File(p.join(raiz.path, 'dados.bin'))
+          ..writeAsBytesSync(List.generate(tamanho, (i) => i % 251));
+
+    test('lê o arquivo inteiro em pedaços e o fecha', () async {
+      final arquivo = arquivoDe(150 * 1024);
+      final pedacos = await TarStreamHelper.lerArquivo(arquivo).toList();
+      expect(pedacos.length, 3);
+      expect(pedacos.expand((e) => e).toList(), arquivo.readAsBytesSync());
+      arquivo.deleteSync();
+    });
+
+    test('arquivo menor que o tamanho do cabeçalho dá erro', () async {
+      final arquivo = arquivoDe(1000);
+      await expectLater(
+        TarStreamHelper.lerArquivo(arquivo, tamanho: 1010).toList(),
+        throwsA(isA<FileSystemException>()),
+      );
+      arquivo.deleteSync();
+    });
+
+    test('desistir no meio fecha o arquivo', () async {
+      final arquivo = arquivoDe(200 * 1024);
+      await TarStreamHelper.lerArquivo(arquivo).first;
+      arquivo.deleteSync();
+    });
+  });
+
   group('regras', () {
     test('nome do arquivo com barra normal ou invertida', () {
       expect(DbHelper.nomeDoArquivo(r'C:\pasta\capa.jpg'), 'capa.jpg');

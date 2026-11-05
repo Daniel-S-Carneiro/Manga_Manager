@@ -101,8 +101,12 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
     setState(() => _isLoading = true);
 
     try {
-      final caminho = await caminhoLocalDoArquivo(arquivo);
-      final msg = await _backupService.restoreBackup(caminho, merge: merge);
+      // A cópia que o seletor faz do backup (no Android, no cache do app) é
+      // apagada no fim; o arquivo escolhido pelo usuário fica intacto
+      final msg = await usarArquivoEscolhido(
+        arquivo,
+        (caminho) => _backupService.restoreBackup(caminho, merge: merge),
+      );
       _mostrarFeedback(msg);
       _atualizarInterface();
     } catch (e) {
