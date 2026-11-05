@@ -134,7 +134,8 @@ class _VersionUpdaterButtonState extends State<VersionUpdaterButton> {
                 color: _hasUpdate ? Colors.red : Colors.green,
               ),
               const SizedBox(width: 8),
-              const Text('Informações de Versão'),
+              // Flexible: no celular o título não cabe numa linha e quebra
+              const Flexible(child: Text('Informações de Versão')),
             ],
           ),
           content: SingleChildScrollView(

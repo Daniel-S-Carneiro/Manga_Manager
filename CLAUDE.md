@@ -20,7 +20,7 @@ flutter test --plain-name "nome do teste"
 build_installer.cmd                  # release completo: Windows + APK + Linux (WSL) + instalador NSIS -> dist/ (exige árvore Git limpa)
 ```
 
-- Os testes cobrem lógica pura e diálogos (`BrowserHelper`, `LeitorBase`, `ConfigRolagem`, `PainelRolagem`, `AtualizacaoDialog`, `CapaHelper`, `atualizacao_leitura_dialog.dart`) e a restauração do backup, que abre um banco SQLite de verdade em pastas temporárias. O resto do que usa o banco, e tudo o que usa o WebView, precisa de teste manual no app.
+- Os testes cobrem lógica pura e diálogos (`BrowserHelper`, `LeitorBase`, `ConfigRolagem`, `PainelRolagem`, `AtualizacaoDialog`, `CapaHelper`, `atualizacao_leitura_dialog.dart`, o diálogo do `VersionUpdaterButton` em larguras de celular) e a restauração do backup, que abre um banco SQLite de verdade em pastas temporárias. O resto do que usa o banco, e tudo o que usa o WebView, precisa de teste manual no app.
 - Em `testWidgets`, código que chama canal de plataforma (banco, `window_manager`, `path_provider`) precisa de `tester.runAsync(...)`. Sem isso o teste espera para sempre uma resposta que nunca chega.
 - `build_installer.cmd` lê a versão da linha `version:` do `pubspec.yaml` (parte antes do `+`) e passa para o `installer.nsi` como `APP_VERSION`. Precisa do NSIS em `C:\Program Files (x86)\NSIS\makensis.exe`.
 
