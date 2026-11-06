@@ -1,6 +1,17 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:manga_manager/utils/browser_helper.dart';
 import 'package:manga_manager/utils/config_rolagem.dart';
+
+/// Node no PATH, para conferir a sintaxe do JS gerado.
+final bool _temNode = () {
+  try {
+    return Process.runSync('node', ['--version']).exitCode == 0;
+  } catch (_) {
+    return false;
+  }
+}();
 
 void main() {
   group('hostMatchesAllowed', () {
@@ -129,6 +140,34 @@ void main() {
         isFalse,
       );
     });
+
+    test('lista padrão pega a rede dos pop-ups do Nexus', () {
+      const lista = BrowserHelper.defaultAdDomains;
+      for (final url in [
+        'https://cc.leedbrott.com/sfiSVdtOsMv/156269',
+        'https://semicticken.com/1clkn/156312',
+        'https://fs.pistilairwash.cfd/sbx/f/156269',
+        'https://ep1.adtrafficquality.google/getconfig/sodar',
+        'https://fundingchoicesmessages.google.com/i/ca-pub-1',
+      ]) {
+        expect(BrowserHelper.urlEhAnuncio(url, lista), isTrue, reason: url);
+      }
+      // O próprio site e o reCAPTCHA do Google continuam passando
+      expect(
+        BrowserHelper.urlEhAnuncio(
+          'https://www.nexusmangas.com/assets/entries/pages.js',
+          lista,
+        ),
+        isFalse,
+      );
+      expect(
+        BrowserHelper.urlEhAnuncio(
+          'https://www.google.com/recaptcha/api2/aframe',
+          lista,
+        ),
+        isFalse,
+      );
+    });
   });
 
   group('isSameOriginHost', () {
@@ -170,7 +209,49 @@ void main() {
       expect(js, contains('const BLOQUEAR_NAVEGACAO = false;'));
       // Bloqueio de scripts/quadros de anúncio ligado por padrão
       expect(js, contains('const BLOQUEAR_ELEMENTOS = true;'));
+      // Remoção do que fica preso no <html> e blocos do Google escondidos
+      expect(js, contains('const REMOVER_FORA_DO_BODY = true;'));
+      expect(js, contains("el.tagName === 'HEAD' || el.tagName === 'BODY'"));
+      expect(js, contains('ins.adsbygoogle { display: none !important; }'));
     });
+
+    test('regra do <html> pode ser desligada', () async {
+      final js = await BrowserHelper.getAdBlockScript(
+        sessionOriginHost: 'nexustoons.com',
+        adDomains: const [],
+        allowedDomains: const [],
+        removerForaDoBody: false,
+      );
+
+      expect(js, contains('const REMOVER_FORA_DO_BODY = false;'));
+    });
+
+    // O script vai como texto para o navegador: um erro de sintaxe (ex.: uma
+    // interpolação do Dart no lugar errado) desligaria o adblock inteiro sem
+    // aviso. O Node confere a sintaxe; sem Node na máquina, o teste é pulado.
+    test('JS gerado tem sintaxe válida', () async {
+      final pasta = Directory.systemTemp.createTempSync('adblock_js');
+      addTearDown(() => pasta.deleteSync(recursive: true));
+      final variantes = {
+        'padrao': await BrowserHelper.getAdBlockScript(
+          sessionOriginHost: 'www.nexusmangas.com',
+          adDomains: BrowserHelper.defaultAdDomains,
+          allowedDomains: BrowserHelper.defaultAllowedDomains,
+        ),
+        'tudo_ligado': await BrowserHelper.getAdBlockScript(
+          sessionOriginHost: 'www.nexusmangas.com',
+          adDomains: const ['exemplo.com', 'exemplo.com/ads/'],
+          allowedDomains: const [],
+          diagnostico: true,
+          bloquearNavegacaoPorScript: true,
+        ),
+      };
+      for (final MapEntry(key: nome, value: js) in variantes.entries) {
+        final arquivo = File('${pasta.path}/$nome.js')..writeAsStringSync(js);
+        final r = Process.runSync('node', ['--check', arquivo.path]);
+        expect(r.exitCode, 0, reason: '$nome: ${r.stderr}');
+      }
+    }, skip: _temNode ? false : 'Node não encontrado no PATH');
 
     test('bloqueio por script (Navigation API) só quando pedido', () async {
       final js = await BrowserHelper.getAdBlockScript(
@@ -198,6 +279,8 @@ void main() {
       // Diz se a recusa veio da Cloudflare ou do servidor do site
       expect(js, contains("cabecalho('cf-mitigated')"));
       expect(js, contains('DESAFIO CLOUDFLARE'));
+      // Resposta opaca (no-cors) vem com status 0 mesmo quando deu certo
+      expect(js, contains("r.type !== 'opaque'"));
       // A string Dart não é "raw": o JS precisa receber \s, e não só "s"
       expect(js, contains(r'.replace(/\s+/g'));
     });

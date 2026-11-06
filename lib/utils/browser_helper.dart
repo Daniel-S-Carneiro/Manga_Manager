@@ -133,6 +133,19 @@ class BrowserHelper {
     'googletagservices.com',
     'google-analytics.com',
     'static.cloudflareinsights.com',
+    // Rede dos pop-ups falsos do Opera no Nexus (zona 156269). Troca de
+    // domínio com frequência; o que segura de verdade é a regra do <html>
+    // no script de adblock (removerForaDoBody)
+    'leedbrott.com',
+    'semicticken.com',
+    'pistilairwash.cfd',
+    'aretteauxil.qpon',
+    'scotermarsoon.cyou',
+    'subduepaler.cyou',
+    // Google: verificação de tráfego dos anúncios e o detector de bloqueador
+    // (Funding Choices), que mostra aviso quando os anúncios não carregam
+    'adtrafficquality.google',
+    'fundingchoicesmessages.google.com',
   ];
 
   /// Extras opcionais (a origem da sessão no screen é o principal).
@@ -458,6 +471,12 @@ class BrowserHelper {
   /// [bloquearElementosDeAnuncio]: recusa que a página insira `<script>` ou
   /// `<iframe>` de domínio de anúncio (o anúncio nem roda). Essencial no
   /// Linux, onde o CEF não bloqueia o download; no Windows é proteção extra.
+  /// [removerForaDoBody]: remove o que a página prender direto no `<html>`,
+  /// fora do `<head>` e do `<body>`. Página de verdade não põe nada ali (o
+  /// leitor de HTML move para o `<body>` o que vem depois dele), mas as redes
+  /// de anúncio põem: os pop-ups falsos do Opera no Nexus e o anúncio fixo do
+  /// Google. Não depende de domínio, então pega as redes que trocam de
+  /// domínio toda semana.
   ///
   /// As listas vão para o JS como JSON e a comparação é feita pelo HOST
   /// (nada de regex interpolada, então entradas com "/" não quebram o script).
@@ -468,6 +487,7 @@ class BrowserHelper {
     bool diagnostico = false,
     bool bloquearNavegacaoPorScript = false,
     bool bloquearElementosDeAnuncio = true,
+    bool removerForaDoBody = true,
   }) async {
     final ads = adDomains ?? await getAdDomains();
     final allowed = allowedDomains ?? await getAllowedDomains();
@@ -513,6 +533,7 @@ class BrowserHelper {
   const DIAGNOSTICO = $diagnostico;
   const BLOQUEAR_NAVEGACAO = $bloquearNavegacaoPorScript;
   const BLOQUEAR_ELEMENTOS = $bloquearElementosDeAnuncio;
+  const REMOVER_FORA_DO_BODY = $removerForaDoBody;
   const DIAG = DIAGNOSTICO
     ? (window.__mangaDiag = window.__mangaDiag ||
         { bloqueios: [], http: [], erros: [], elementos: [] })
@@ -607,7 +628,10 @@ class BrowserHelper {
       const resposta = _fetch.apply(this, arguments);
       if (!DIAG) return resposta;
       return resposta.then(function(r) {
-        if (r && !r.ok) {
+        // Resposta opaca (pedido no-cors, ex.: o teste de conexão
+        // gstatic.com/generate_204) sempre vem com status 0, mesmo quando deu
+        // certo: não é falha
+        if (r && !r.ok && r.type !== 'opaque' && r.type !== 'opaqueredirect') {
           const cab = function(n) { try { return r.headers.get(n); } catch (_) { return null; } };
           // Lê uma cópia do corpo: a resposta original segue intacta para o site
           r.clone().text().then(function(corpo) {
@@ -765,6 +789,39 @@ class BrowserHelper {
       }).observe(document, { childList: true, subtree: true });
     } catch (_) {}
   }
+
+  // Anúncio preso direto no <html>, fora do <head> e do <body>: os pop-ups
+  // falsos do Opera no Nexus vêm num div fixo com z-index 2147483646 e
+  // quadros sem endereço, que o bloqueio por domínio não alcança. Observa só
+  // os filhos do <html> (sem subtree), então custa quase nada.
+  if (REMOVER_FORA_DO_BODY) {
+    try {
+      const raiz = document.documentElement;
+      const limparRaiz = function() {
+        const filhos = raiz.children;
+        for (let i = filhos.length - 1; i >= 0; i--) {
+          const el = filhos[i];
+          if (el.tagName === 'HEAD' || el.tagName === 'BODY') continue;
+          anotar('elementos', 'fora do body: ' + el.tagName.toLowerCase() +
+            (el.className ? '.' + String(el.className).split(' ')[0] : ''));
+          el.remove();
+        }
+      };
+      new MutationObserver(limparRaiz).observe(raiz, { childList: true });
+      limparRaiz();
+    } catch (_) {}
+  }
+
+  // Espaços de anúncio do Google (AdSense) dentro da página, como o
+  // "Descobrir mais" do Nexus: escondidos por CSS. No Linux o script do
+  // Google vem escrito no HTML e carrega (o CEF não bloqueia o download). A
+  // folha é construída (adoptedStyleSheets), não é elemento: a regra do
+  // <html> acima não a remove.
+  try {
+    const estilo = new CSSStyleSheet();
+    estilo.replaceSync('ins.adsbygoogle { display: none !important; }');
+    document.adoptedStyleSheets = document.adoptedStyleSheets.concat([estilo]);
+  } catch (_) {}
 
   // Intercepta cliques abusivos na fase de captura (true)
   document.addEventListener('click', function(e) {
