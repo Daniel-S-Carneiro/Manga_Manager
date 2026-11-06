@@ -2,6 +2,7 @@
 @Timeout(Duration(seconds: 60))
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ import 'package:manga_manager/utils/tar_stream_helper.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:tar/tar.dart';
 
 /// Pastas do sistema trocadas por pastas temporárias: a restauração apaga o
 /// banco e as capas, e não pode tocar nos dados reais do computador.
@@ -226,6 +228,146 @@ void main() {
       // apenas um aviso entre programas)
       skip: !Platform.isWindows,
     );
+  });
+
+  group('manifesto', () {
+    /// Nome e conteúdo de cada entrada do backup, na ordem.
+    Future<List<(String, List<int>)>> entradasDe(String backup) async {
+      final reader = TarReader(File(backup).openRead().transform(gzip.decoder));
+      final entradas = <(String, List<int>)>[];
+      while (await reader.moveNext()) {
+        final e = reader.current;
+        final bytes = await e.contents.fold<List<int>>(
+          [],
+          (a, b) => a..addAll(b),
+        );
+        entradas.add((e.name, bytes));
+      }
+      return entradas;
+    }
+
+    /// Regrava o [backup] sem as entradas [omitir] e com as [extras] no fim:
+    /// um tar e um gzip válidos, como um corte exato entre dois arquivos.
+    Future<String> regravar(
+      String backup, {
+      Set<String> omitir = const {},
+      Map<String, List<int>> extras = const {},
+    }) async {
+      final entradas = <TarEntry>[
+        for (final (nome, bytes) in await entradasDe(backup))
+          if (!omitir.contains(nome))
+            TarEntry.data(TarHeader(name: nome, mode: 420), bytes),
+        for (final MapEntry(:key, :value) in extras.entries)
+          TarEntry.data(TarHeader(name: key, mode: 420), value),
+      ];
+      final destino = p.join(raiz.path, 'regravado.tar.gz');
+      await Stream.fromIterable(entradas)
+          .transform(tarWriter)
+          .transform(gzip.encoder)
+          .pipe(File(destino).openWrite());
+      return destino;
+    }
+
+    /// Dados que já estão no app antes de restaurar.
+    Future<File> dadosAtuais() async {
+      final db = await DbHelper().database;
+      await db.insert('mangas', {
+        'nome_pt': 'Meu atual',
+        'status_leitura': 'Lendo',
+        'ordem_leitura': 0,
+      });
+      final capas = await DbHelper().getCapasDirectory();
+      capas.createSync(recursive: true);
+      return File(p.join(capas.path, 'capa_atual.jpg'))
+        ..writeAsBytesSync([9, 9, 9]);
+    }
+
+    test('vem primeiro e lista cada arquivo com o tamanho', () async {
+      final entradas = await entradasDe(await backupDoWindows());
+
+      expect(entradas.first.$1, TarStreamHelper.nomeManifesto);
+      final manifesto = jsonDecode(utf8.decode(entradas.first.$2)) as Map;
+      expect(manifesto['formato'], 1);
+      expect(manifesto['arquivos'], {
+        for (final (nome, bytes) in entradas.skip(1)) nome: bytes.length,
+      });
+      expect(
+        (manifesto['arquivos'] as Map).keys,
+        containsAll([
+          DbHelper.nomeBancoRelease,
+          'capas/capa_1.jpg',
+          'capas/Capa_2.PNG',
+        ]),
+      );
+    });
+
+    test(
+      'backup cortado entre dois arquivos para antes de mexer nos dados',
+      () async {
+        final capaAtual = await dadosAtuais();
+        final cortado = await regravar(
+          await backupDoWindows(),
+          omitir: {'capas/Capa_2.PNG'},
+        );
+
+        await expectLater(
+          BackupService().restoreBackup(cortado, merge: false),
+          throwsA(
+            isA<Exception>().having(
+              (e) => e.toString(),
+              'mensagem',
+              allOf(
+                contains('incompleto'),
+                contains('1 de 3'),
+                contains('capas/Capa_2.PNG'),
+                contains('Nada foi alterado'),
+              ),
+            ),
+          ),
+        );
+
+        expect(await capasNoBanco(), {'Meu atual': null});
+        expect(capaAtual.readAsBytesSync(), [9, 9, 9]);
+      },
+    );
+
+    test('backup sem manifesto (antes da v2.2.1) ainda restaura, e o '
+        'manifest.json antigo não vira capa', () async {
+      final antigo = await regravar(
+        await backupDoWindows(),
+        omitir: {TarStreamHelper.nomeManifesto},
+        extras: {
+          'manifest.json': utf8.encode('{"totalFiles":3,"totalBytes":1}'),
+        },
+      );
+
+      final mensagem = await BackupService().restoreBackup(
+        antigo,
+        merge: false,
+      );
+
+      expect(mensagem, contains('sucesso'));
+      final pastaCapas = (await DbHelper().getCapasDirectory()).path;
+      expect(File(p.join(pastaCapas, 'capa_1.jpg')).existsSync(), isTrue);
+      expect(File(p.join(pastaCapas, 'manifest.json')).existsSync(), isFalse);
+    });
+
+    test('confere arquivo faltando e com tamanho diferente', () {
+      expect(
+        TarStreamHelper.conferirManifesto(
+          {'a': 1, 'b': 2, 'c': 3},
+          {'a': 1, 'b': 5, 'extra': 7},
+        ),
+        ['b', 'c'],
+      );
+      expect(TarStreamHelper.conferirManifesto({'a': 1}, {'a': 1}), isEmpty);
+    });
+
+    test('mensagem mostra até três arquivos', () {
+      final erro = BackupIncompleto(['a', 'b', 'c', 'd', 'e'], total: 10);
+      expect(erro.mensagem, contains('5 de 10'));
+      expect(erro.mensagem, contains('(a, b, c…)'));
+    });
   });
 
   group('lerArquivo', () {

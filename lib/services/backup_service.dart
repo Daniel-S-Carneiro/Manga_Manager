@@ -46,7 +46,9 @@ class BackupService {
   // ==========================================
   // ISOLATE DE EXTRAÇÃO (PACKAGE:TAR + GZIP)
   // ==========================================
-  static Future<bool> _extractIsolate(Map<String, String> args) async {
+  /// Extrai o backup. Devolve `null` se deu certo, ou a mensagem de erro
+  /// para o usuário.
+  static Future<String?> _extractIsolate(Map<String, String> args) async {
     try {
       final tarGzPath = args['tarGzPath']!;
       final destPath = args['destPath']!;
@@ -61,10 +63,14 @@ class BackupService {
       );
 
       _logDebug('Extração concluída com sucesso.');
-      return true;
+      return null;
+    } on BackupIncompleto catch (e) {
+      _logDebug('BACKUP INCOMPLETO: ${e.arquivos}');
+      return e.mensagem;
     } catch (e, st) {
       _logDebug('ERRO NA EXTRAÇÃO STREAMING: $e\n$st');
-      return false;
+      return 'Falha ao descompactar o arquivo .tar.gz. Verifique se o arquivo '
+          'não está corrompido.';
     }
   }
 
@@ -168,16 +174,14 @@ class BackupService {
       );
       extraidoDir = io.Directory(destPath);
 
-      final sucesso = await Isolate.run(
+      // Tudo é conferido aqui, numa pasta temporária, antes de mexer nos
+      // dados: um backup com problema para a restauração neste ponto
+      final erro = await Isolate.run(
         () =>
             _extractIsolate({'tarGzPath': tarGzFilePath, 'destPath': destPath}),
       );
 
-      if (!sucesso) {
-        throw Exception(
-          "Falha ao descompactar o arquivo .tar.gz. Verifique se o arquivo não está corrompido.",
-        );
-      }
+      if (erro != null) throw Exception(erro);
 
       final arquivos = extraidoDir
           .listSync(recursive: true)
