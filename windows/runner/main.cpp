@@ -46,6 +46,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,_In_ wcha
     handleWndProcForCEF(msg.hwnd, msg.message, msg.wParam, msg.lParam);
   }
 
-  ::CoUninitialize();
+  // Fecha a janela e o engine do Flutter, se ainda não fecharam (o
+  // windowManager.destroy() só encerra o loop). Os plugins rodam aqui os
+  // próprios destrutores.
+  window.Destroy();
+
+  // Daqui em diante o processo só destruiria as variáveis estáticas dos
+  // plugins, e duas delas derrubavam o app em todo fechamento:
+  //  - o flutter_inappwebview_windows 0.6.0 guarda em estáticas uma
+  //    DispatcherQueueController e um Compositor que ele nunca desliga
+  //    (ShutdownQueueAsync); liberados no fim do processo, davam 0xc0000005
+  //    em coremessaging.dll;
+  //  - o webview_cef guarda a thread de vsync num std::thread estático; se
+  //    ela ainda estiver rodando, o C++ chama std::terminate (0xc0000409).
+  // Nada mais precisa rodar: os dados já foram gravados pelo app e o WebView2
+  // roda em outros processos, que fecham sozinhos. Por isso o processo
+  // termina aqui, sem esses destrutores.
+  ::fflush(stdout);
+  ::fflush(stderr);
+  ::TerminateProcess(::GetCurrentProcess(), EXIT_SUCCESS);
   return EXIT_SUCCESS;
 }

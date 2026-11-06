@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../database/db_helper.dart';
 import '../widgets/atualizacao_dialog.dart';
@@ -249,8 +251,18 @@ class UpdateService {
         urlDownload: downloadUrl,
         iniciarElevado: (exe, args) => iniciarComElevacao(exe, args: args),
         pastaTemporaria: getTemporaryDirectory,
-        encerrarApp: () => exit(0),
+        encerrarApp: _fecharParaInstalar,
       ),
     );
+  }
+
+  /// Fecha o app para o instalador trocar os arquivos. Fecha a janela como o
+  /// botão de fechar, para os plugins se encerrarem pelo caminho normal (o
+  /// main.cpp termina o processo depois): com `exit(0)` direto, a thread de
+  /// vsync do webview_cef ainda rodava e o app caía com 0xc0000409. O
+  /// `exit(0)` fica só para o caso de a janela não fechar.
+  static void _fecharParaInstalar() {
+    unawaited(windowManager.close());
+    Future<void>.delayed(const Duration(seconds: 5), () => exit(0));
   }
 }

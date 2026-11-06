@@ -577,6 +577,21 @@ class _BrowserScreenState extends State<BrowserScreen>
         return null;
       },
       onCreateWindow: (controller, createWindowRequest) async => false,
+      // Pedidos de permissão (notificação, câmera, sensores...) vêm quase
+      // sempre dos anúncios: o leitor nega todos. A resposta é obrigatória no
+      // Windows: sem ela, o flutter_inappwebview_windows 0.6.0 lê a resposta
+      // nula sem conferir (PermissionRequestCallback) e o app fecha com
+      // 0xc0000005 em flutter_inappwebview_windows_plugin.dll (visto no Nexus)
+      onPermissionRequest: (controller, request) async {
+        logLeitor(
+          'Permissão negada: ${request.resources.join(', ')} '
+          '(${request.origin})',
+        );
+        return PermissionResponse(
+          resources: request.resources,
+          action: PermissionResponseAction.DENY,
+        );
+      },
       onReceivedError: (controller, request, error) {
         final u = request.url.toString();
 
