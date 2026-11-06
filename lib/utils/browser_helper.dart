@@ -148,6 +148,19 @@ class BrowserHelper {
     'fundingchoicesmessages.google.com',
   ];
 
+  /// Elementos escondidos por CSS em todos os sites: avisos e espaços de
+  /// anúncio que ficam dentro da página, onde o bloqueio por domínio não
+  /// alcança (inclusive os do próprio site). Use seletores bem específicos:
+  /// valem para qualquer página aberta no leitor.
+  static const List<String> seletoresEscondidos = [
+    // Blocos do Google AdSense (ex.: "Descobrir mais" no Nexus)
+    'ins.adsbygoogle',
+    // Balão "Apoie o site" do plugin de doações MangaJS (mangalivre.blog).
+    // O "ocultar por 10 min" dele fica gravado no servidor, então não dá
+    // para impedir que abra; ele não trava a rolagem, só cobre a tela
+    '#mjsDonationModal',
+  ];
+
   /// Extras opcionais (a origem da sessão no screen é o principal).
   static const List<String> defaultAllowedDomains = [
     'nexustoons.com',
@@ -506,6 +519,10 @@ class BrowserHelper {
 
     final adJson = jsonEncode(adList);
     final allowJson = jsonEncode(allowSet.toList());
+    // String JS pronta (com aspas e escapes) via JSON
+    final cssEscondidosJson = jsonEncode(
+      '${seletoresEscondidos.join(', ')} { display: none !important; }',
+    );
 
     return '''
 (function() {
@@ -812,14 +829,15 @@ class BrowserHelper {
     } catch (_) {}
   }
 
-  // Espaços de anúncio do Google (AdSense) dentro da página, como o
-  // "Descobrir mais" do Nexus: escondidos por CSS. No Linux o script do
+  // Avisos e espaços de anúncio dentro da página (BrowserHelper.
+  // seletoresEscondidos), como o "Descobrir mais" do Google no Nexus e o
+  // balão de doações do mangalivre: escondidos por CSS. No Linux o script do
   // Google vem escrito no HTML e carrega (o CEF não bloqueia o download). A
   // folha é construída (adoptedStyleSheets), não é elemento: a regra do
   // <html> acima não a remove.
   try {
     const estilo = new CSSStyleSheet();
-    estilo.replaceSync('ins.adsbygoogle { display: none !important; }');
+    estilo.replaceSync($cssEscondidosJson);
     document.adoptedStyleSheets = document.adoptedStyleSheets.concat([estilo]);
   } catch (_) {}
 

@@ -212,7 +212,14 @@ void main() {
       // Remoção do que fica preso no <html> e blocos do Google escondidos
       expect(js, contains('const REMOVER_FORA_DO_BODY = true;'));
       expect(js, contains("el.tagName === 'HEAD' || el.tagName === 'BODY'"));
-      expect(js, contains('ins.adsbygoogle { display: none !important; }'));
+      // Lista de seletores escondidos vira uma string JS (via JSON)
+      expect(
+        js,
+        contains(
+          'estilo.replaceSync("ins.adsbygoogle, #mjsDonationModal '
+          '{ display: none !important; }");',
+        ),
+      );
     });
 
     test('regra do <html> pode ser desligada', () async {
