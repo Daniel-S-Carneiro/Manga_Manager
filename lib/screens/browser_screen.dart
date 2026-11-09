@@ -41,19 +41,13 @@ class _BrowserScreenState extends State<BrowserScreen>
   // investigar o próprio plugin.
   static const bool _logDoPlugin = false;
 
-  // --- Interruptores dos ajustes novos --------------------------------------
-  // Identidade coerente no Android (UA de Chrome com a versão real do WebView,
-  // sem falsear platform, sem "Android WebView" nos client hints e sem o header
-  // X-Requested-With). Se o site voltar a desconfiar, ponha false para voltar
-  // exatamente ao comportamento anterior.
-  static const bool _stealthMobileV2 = true;
-
   // Injeta o adblock também dentro de iframes (anúncios/pop-unders que nascem
   // em iframe). Se algum player ou captcha quebrar, ponha false.
   static const bool _adblockEmSubframes = true;
 
   // Grupo do script de rolagem, para trocá-lo quando o usuário muda o ajuste
   static const String _grupoRolagem = 'manga_rolagem';
+  static const String _grupoSobreposicoes = 'manga_sobreposicoes';
 
   // Um único ambiente WebView2 para o app todo (Windows)
   static WebViewEnvironment? _sharedWebViewEnvironment;
@@ -69,9 +63,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   bool get _isAndroid => !kIsWeb && Platform.isAndroid;
-
-  // Identidade nova só vale no Android (iOS/Linux continuam como antes)
-  bool get _useAndroidV2 => _stealthMobileV2 && _isAndroid;
 
   @override
   String get urlInicial => widget.initialUrl;
@@ -104,6 +95,23 @@ class _BrowserScreenState extends State<BrowserScreen>
     await c.evaluateJavascript(source: script);
   }
 
+  UserScript _userScriptSobreposicoes(String source) => UserScript(
+    groupName: _grupoSobreposicoes,
+    source: source,
+    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+  );
+
+  // Como na rolagem: troca o script das próximas páginas e liga ou desliga a
+  // regra na página aberta
+  @override
+  Future<void> aplicarSobreposicoes(String script) async {
+    final c = webViewController;
+    if (c == null) return;
+    await c.removeUserScriptsByGroupName(groupName: _grupoSobreposicoes);
+    await c.addUserScript(userScript: _userScriptSobreposicoes(script));
+    await c.evaluateJavascript(source: script);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -128,6 +136,8 @@ class _BrowserScreenState extends State<BrowserScreen>
     await carregarConfiguracoesBarra();
     // Rolagem antes de montar os scripts (vai embutida no da página)
     if (leitorDesktop) await carregarConfiguracoesRolagem();
+    // Regra dos avisos por cima da página, ligada ou não neste site
+    await carregarConfiguracaoSobreposicoes();
 
     // 1) Ambiente do WebView (Windows) e user agent
     try {
@@ -135,9 +145,10 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _prepararWebViewEnvironmentWindows();
         // Vazio = user agent do próprio WebView2 (Edge). Um UA fixo de outra
         // versão contradiz os client hints (sec-ch-ua) e a proteção anti-robô
-        // dos sites desconfia: o Nexus passou a responder 503.
+        // dos sites desconfia: um site passou a responder 503.
         _userAgent = '';
-      } else if (_useAndroidV2) {
+      } else if (_isAndroid) {
+        // UA de Chrome com a versão real do WebView (compatibilidade)
         _userAgent = await _resolverUserAgentAndroid();
       } else {
         final saved = await BrowserHelper.getUserAgent();
@@ -179,22 +190,17 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
 
     _initialUserScripts = [
+      // Compatibilidade: o WebView do celular se apresenta como um navegador
+      // comum (ver BrowserHelper.scriptCompatibilidadeAndroid)
       if (_isMobile)
-        if (_useAndroidV2)
-          UserScript(
-            source: BrowserHelper.stealthScriptAndroid,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          )
-        else ...[
-          UserScript(
-            source: BrowserHelper.stealthScript,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          ),
-          UserScript(
-            source: _mobileStealthExtra,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          ),
-        ],
+        UserScript(
+          source: _isAndroid
+              ? BrowserHelper.scriptCompatibilidadeAndroid
+              : BrowserHelper.scriptCompatibilidade,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+        ),
+      // Antes do adblock: diz se a regra de sobreposições vale neste site
+      _userScriptSobreposicoes(scriptSobreposicoes),
       // Uma única injeção (a guarda __mangaAdBlockInstalled tornava a cópia
       // em AT_DOCUMENT_END inútil)
       if (adJs.isNotEmpty)
@@ -485,7 +491,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         transparentBackground: true, // Evita flashs brancos ao carregar
         // Lista vazia = nenhum site recebe o header X-Requested-With (que traz
         // o nome do pacote do app). Só Android; ignorado nas demais plataformas.
-        requestedWithHeaderOriginAllowList: _useAndroidV2 ? <String>{} : null,
+        requestedWithHeaderOriginAllowList: _isAndroid ? <String>{} : null,
       ),
       onWebViewCreated: (controller) {
         webViewController = controller;
@@ -516,7 +522,7 @@ class _BrowserScreenState extends State<BrowserScreen>
           isLoading.value = false;
         }
 
-        // SPA Nexus: tratamento mobile
+        // Sites SPA: tratamento mobile
         if (urlPermitida(u) && u.contains('/r/') && _isMobile) {
           await Future.delayed(const Duration(seconds: 4));
           if (!mounted) return;
@@ -581,7 +587,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       // sempre dos anúncios: o leitor nega todos. A resposta é obrigatória no
       // Windows: sem ela, o flutter_inappwebview_windows 0.6.0 lê a resposta
       // nula sem conferir (PermissionRequestCallback) e o app fecha com
-      // 0xc0000005 em flutter_inappwebview_windows_plugin.dll (visto no Nexus)
+      // 0xc0000005 em flutter_inappwebview_windows_plugin.dll (visto num site
+      // que pede permissão de notificação)
       onPermissionRequest: (controller, request) async {
         logLeitor(
           'Permissão negada: ${request.resources.join(', ')} '
@@ -627,22 +634,6 @@ class _BrowserScreenState extends State<BrowserScreen>
       } catch (err) {}
     }
   });
-})();
-''';
-
-  // Comportamento anterior do mobile (usado com _stealthMobileV2 = false e no iOS)
-  static const String _mobileStealthExtra = r'''
-(function() {
-  if (window.__mangaMobileStealthExtra) return;
-  window.__mangaMobileStealthExtra = true;
-  try {
-    Object.defineProperty(navigator, 'platform', {
-      get: function() { return 'Win32'; },
-      configurable: true
-    });
-  } catch (e) {}
-  try { delete window.Flutter; } catch (e) {}
-  try { delete window.Android; } catch (e) {}
 })();
 ''';
 }

@@ -107,6 +107,8 @@ void main() {
     Future<void> montarBarra(
       WidgetTester tester, {
       VoidCallback? onScrollSettings,
+      ValueNotifier<bool>? sobreposicoesAtivas,
+      VoidCallback? onAlternarSobreposicoes,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -124,6 +126,8 @@ void main() {
                   onFullScreen: () {},
                   onToggleOrientation: () {},
                   onScrollSettings: onScrollSettings,
+                  sobreposicoesAtivas: sobreposicoesAtivas,
+                  onAlternarSobreposicoes: onAlternarSobreposicoes,
                 ),
               ],
             ),
@@ -140,6 +144,28 @@ void main() {
       await montarBarra(tester, onScrollSettings: () => abriu++);
       await tester.tap(find.byTooltip('Rolagem do mouse'));
       expect(abriu, 1);
+    });
+
+    testWidgets('botão dos avisos mostra o estado no site e alterna', (
+      tester,
+    ) async {
+      const escondidos = 'Avisos por cima da página: escondidos neste site';
+      const mostrados = 'Avisos por cima da página: mostrados neste site';
+      await montarBarra(tester);
+      expect(find.byTooltip(escondidos), findsNothing);
+
+      final ativa = ValueNotifier(true);
+      await montarBarra(
+        tester,
+        sobreposicoesAtivas: ativa,
+        onAlternarSobreposicoes: () => ativa.value = !ativa.value,
+      );
+      expect(find.byTooltip(escondidos), findsOneWidget);
+
+      await tester.tap(find.byTooltip(escondidos));
+      await tester.pump();
+      expect(ativa.value, isFalse);
+      expect(find.byTooltip(mostrados), findsOneWidget);
     });
   });
 }

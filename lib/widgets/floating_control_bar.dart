@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class FloatingControlBar extends StatelessWidget {
@@ -14,6 +15,11 @@ class FloatingControlBar extends StatelessWidget {
   /// Abre/fecha o painel da rolagem do mouse; null esconde o botão (celular).
   final VoidCallback? onScrollSettings;
 
+  /// Regra que esconde avisos por cima da página, ligada ou não no site
+  /// aberto; com [onAlternarSobreposicoes], mostra o botão que a alterna.
+  final ValueListenable<bool>? sobreposicoesAtivas;
+  final VoidCallback? onAlternarSobreposicoes;
+
   const FloatingControlBar({
     super.key,
     required this.posTop,
@@ -26,6 +32,8 @@ class FloatingControlBar extends StatelessWidget {
     required this.onFullScreen,
     required this.onToggleOrientation,
     this.onScrollSettings,
+    this.sobreposicoesAtivas,
+    this.onAlternarSobreposicoes,
   });
 
   @override
@@ -134,6 +142,29 @@ class FloatingControlBar extends StatelessWidget {
                         constraints: const BoxConstraints(),
                         padding: const EdgeInsets.all(8),
                         onPressed: onScrollSettings,
+                      ),
+                      SizedBox(
+                        width: isVertical.value ? 0 : 4,
+                        height: isVertical.value ? 4 : 0,
+                      ),
+                    ],
+                    if (sobreposicoesAtivas != null &&
+                        onAlternarSobreposicoes != null) ...[
+                      ValueListenableBuilder<bool>(
+                        valueListenable: sobreposicoesAtivas!,
+                        builder: (context, ativa, _) => IconButton(
+                          icon: Icon(
+                            ativa ? Icons.layers_clear : Icons.layers,
+                            color: ativa ? Colors.white : Colors.white54,
+                            size: 20,
+                          ),
+                          tooltip: ativa
+                              ? 'Avisos por cima da página: escondidos neste site'
+                              : 'Avisos por cima da página: mostrados neste site',
+                          constraints: const BoxConstraints(),
+                          padding: const EdgeInsets.all(8),
+                          onPressed: onAlternarSobreposicoes,
+                        ),
                       ),
                       SizedBox(
                         width: isVertical.value ? 0 : 4,

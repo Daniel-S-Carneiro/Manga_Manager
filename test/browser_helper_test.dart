@@ -15,19 +15,19 @@ final bool _temNode = () {
 
 void main() {
   group('hostMatchesAllowed', () {
-    const permitidos = ['nexustoons.com', 'leituramanga'];
+    const permitidos = ['sitedemangas.example', 'outrosite'];
 
     test('host igual ou subdomínio de entrada com ponto', () {
       expect(
         BrowserHelper.hostMatchesAllowed(
-          'https://nexustoons.com/manga/1',
+          'https://sitedemangas.example/manga/1',
           permitidos,
         ),
         isTrue,
       );
       expect(
         BrowserHelper.hostMatchesAllowed(
-          'https://cdn.nexustoons.com/img.png',
+          'https://cdn.sitedemangas.example/img.png',
           permitidos,
         ),
         isTrue,
@@ -37,14 +37,14 @@ void main() {
     test('domínio permitido na query string ou no caminho não libera', () {
       expect(
         BrowserHelper.hostMatchesAllowed(
-          'https://anuncio.com/?volta=nexustoons.com',
+          'https://anuncio.com/?volta=sitedemangas.example',
           permitidos,
         ),
         isFalse,
       );
       expect(
         BrowserHelper.hostMatchesAllowed(
-          'https://anuncio.com/nexustoons.com/x',
+          'https://anuncio.com/sitedemangas.example/x',
           permitidos,
         ),
         isFalse,
@@ -54,7 +54,7 @@ void main() {
     test('host que só começa com o domínio permitido não libera', () {
       expect(
         BrowserHelper.hostMatchesAllowed(
-          'https://nexustoons.com.golpe.io/',
+          'https://sitedemangas.example.golpe.io/',
           permitidos,
         ),
         isFalse,
@@ -64,7 +64,7 @@ void main() {
     test('entrada sem ponto casa por trecho do host', () {
       expect(
         BrowserHelper.hostMatchesAllowed(
-          'https://www.leituramanga.net/cap-1',
+          'https://www.outrosite.example/cap-1',
           permitidos,
         ),
         isTrue,
@@ -136,12 +136,12 @@ void main() {
         isFalse,
       );
       expect(
-        BrowserHelper.urlEhAnuncio('https://nexustoons.com/api/x', lista),
+        BrowserHelper.urlEhAnuncio('https://sitedemangas.example/api/x', lista),
         isFalse,
       );
     });
 
-    test('lista padrão pega a rede dos pop-ups do Nexus', () {
+    test('lista padrão pega a rede de pop-ups falsos', () {
       const lista = BrowserHelper.defaultAdDomains;
       for (final url in [
         'https://cc.leedbrott.com/sfiSVdtOsMv/156269',
@@ -155,7 +155,7 @@ void main() {
       // O próprio site e o reCAPTCHA do Google continuam passando
       expect(
         BrowserHelper.urlEhAnuncio(
-          'https://www.nexusmangas.com/assets/entries/pages.js',
+          'https://www.sitedemangas.example/assets/entries/pages.js',
           lista,
         ),
         isFalse,
@@ -191,19 +191,50 @@ void main() {
         isFalse,
       );
     });
+
+    test('link com "www." vale para o domínio e os subdomínios dele', () {
+      const origem = 'www.site.com';
+      for (final url in [
+        'https://site.com/cap-2',
+        'https://www.site.com/cap-2',
+        'https://cdn.site.com/img.png',
+      ]) {
+        expect(
+          BrowserHelper.isSameOriginHost(url, origem),
+          isTrue,
+          reason: url,
+        );
+      }
+      expect(
+        BrowserHelper.isSameOriginHost('https://outrosite.com/', origem),
+        isFalse,
+      );
+      expect(
+        BrowserHelper.isSameOriginHost('https://site.com.golpe.io/', origem),
+        isFalse,
+      );
+    });
+
+    test('domínio do site tira só o "www." do começo', () {
+      expect(BrowserHelper.dominioDoSite('www.site.com'), 'site.com');
+      expect(BrowserHelper.dominioDoSite('WWW.Site.com'), 'site.com');
+      expect(BrowserHelper.dominioDoSite('leitor.site.com'), 'leitor.site.com');
+      // Sem sobrar só o sufixo
+      expect(BrowserHelper.dominioDoSite('www.com'), 'www.com');
+    });
   });
 
   group('getAdBlockScript', () {
     test('leva as listas como JSON e cancela navegação para fora', () async {
       final js = await BrowserHelper.getAdBlockScript(
-        sessionOriginHost: 'nexustoons.com',
+        sessionOriginHost: 'sitedemangas.example',
         adDomains: const ['ravishwalnut.qpon'],
-        allowedDomains: const ['leituramanga.net'],
+        allowedDomains: const ['outrosite.example'],
       );
 
       expect(js, contains('const AD_LIST = ["ravishwalnut.qpon"]'));
-      expect(js, contains('"nexustoons.com"'));
-      expect(js, contains('"leituramanga.net"'));
+      expect(js, contains('"sitedemangas.example"'));
+      expect(js, contains('"outrosite.example"'));
       // Diagnóstico e bloqueio por script desligados por padrão
       expect(js, contains('const DIAGNOSTICO = false;'));
       expect(js, contains('const BLOQUEAR_NAVEGACAO = false;'));
@@ -212,19 +243,54 @@ void main() {
       // Remoção do que fica preso no <html> e blocos do Google escondidos
       expect(js, contains('const REMOVER_FORA_DO_BODY = true;'));
       expect(js, contains("el.tagName === 'HEAD' || el.tagName === 'BODY'"));
-      // Lista de seletores escondidos vira uma string JS (via JSON)
+      // Lista de seletores escondidos vira uma string JS (via JSON); só regra
+      // genérica, sem seletor feito para um site
       expect(
         js,
         contains(
-          'estilo.replaceSync("ins.adsbygoogle, #mjsDonationModal '
-          '{ display: none !important; }");',
+          'estilo.replaceSync("ins.adsbygoogle { display: none !important; }");',
         ),
+      );
+      expect(js, isNot(contains('mjsDonationModal')));
+      // Regra genérica de sobreposições ligada por padrão
+      expect(js, contains('const REMOVER_SOBREPOSICOES = true;'));
+    });
+
+    test('site da sessão vale sem o "www." (e os subdomínios)', () async {
+      final js = await BrowserHelper.getAdBlockScript(
+        sessionOriginHost: 'www.sitedemangas.example',
+        adDomains: const [],
+        allowedDomains: const [],
+      );
+
+      expect(js, contains('const ALLOW_LIST = ["sitedemangas.example"];'));
+    });
+
+    test('regra de sobreposições pode ser desligada', () async {
+      final js = await BrowserHelper.getAdBlockScript(
+        sessionOriginHost: 'sitedemangas.example',
+        adDomains: const [],
+        allowedDomains: const [],
+        removerSobreposicoes: false,
+      );
+
+      expect(js, contains('const REMOVER_SOBREPOSICOES = false;'));
+    });
+
+    test('script do botão liga e desliga a regra na página', () {
+      expect(
+        BrowserHelper.scriptSobreposicoes(ativa: true),
+        contains('s.ativa = true;'),
+      );
+      expect(
+        BrowserHelper.scriptSobreposicoes(ativa: false),
+        contains('s.ativa = false;'),
       );
     });
 
     test('regra do <html> pode ser desligada', () async {
       final js = await BrowserHelper.getAdBlockScript(
-        sessionOriginHost: 'nexustoons.com',
+        sessionOriginHost: 'sitedemangas.example',
         adDomains: const [],
         allowedDomains: const [],
         removerForaDoBody: false,
@@ -241,17 +307,23 @@ void main() {
       addTearDown(() => pasta.deleteSync(recursive: true));
       final variantes = {
         'padrao': await BrowserHelper.getAdBlockScript(
-          sessionOriginHost: 'www.nexusmangas.com',
+          sessionOriginHost: 'www.sitedemangas.example',
           adDomains: BrowserHelper.defaultAdDomains,
-          allowedDomains: BrowserHelper.defaultAllowedDomains,
+          allowedDomains: const [],
         ),
         'tudo_ligado': await BrowserHelper.getAdBlockScript(
-          sessionOriginHost: 'www.nexusmangas.com',
+          sessionOriginHost: 'www.sitedemangas.example',
           adDomains: const ['exemplo.com', 'exemplo.com/ads/'],
           allowedDomains: const [],
           diagnostico: true,
           bloquearNavegacaoPorScript: true,
         ),
+        'sobreposicoes_ligada': BrowserHelper.scriptSobreposicoes(ativa: true),
+        'sobreposicoes_desligada': BrowserHelper.scriptSobreposicoes(
+          ativa: false,
+        ),
+        'compatibilidade': BrowserHelper.scriptCompatibilidade,
+        'compatibilidade_android': BrowserHelper.scriptCompatibilidadeAndroid,
       };
       for (final MapEntry(key: nome, value: js) in variantes.entries) {
         final arquivo = File('${pasta.path}/$nome.js')..writeAsStringSync(js);
@@ -262,7 +334,7 @@ void main() {
 
     test('bloqueio por script (Navigation API) só quando pedido', () async {
       final js = await BrowserHelper.getAdBlockScript(
-        sessionOriginHost: 'nexustoons.com',
+        sessionOriginHost: 'sitedemangas.example',
         adDomains: const [],
         allowedDomains: const [],
         bloquearNavegacaoPorScript: true,
@@ -275,7 +347,7 @@ void main() {
 
     test('modo diagnóstico liga a anotação de falhas na página', () async {
       final js = await BrowserHelper.getAdBlockScript(
-        sessionOriginHost: 'nexustoons.com',
+        sessionOriginHost: 'sitedemangas.example',
         adDomains: const [],
         allowedDomains: const [],
         diagnostico: true,

@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../database/db_helper.dart';
 import '../utils/browser_helper.dart';
 import '../utils/config_rolagem.dart';
+import '../utils/config_sobreposicoes.dart';
 import '../widgets/floating_control_bar.dart';
 import '../widgets/painel_rolagem.dart';
 
@@ -39,16 +40,21 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
       ValueNotifier<ConfigRolagem>(ConfigRolagem.padrao);
   final ValueNotifier<bool> painelRolagemAberto = ValueNotifier<bool>(false);
 
-  /// Host da URL inicial: navegar dentro dele (ou de um subdomínio) é sempre
-  /// permitido.
+  /// Regra que esconde avisos por cima da página, ligada ou não no site aberto
+  /// (botão da barra; ver [ConfigSobreposicoes]).
+  final ValueNotifier<bool> sobreposicoesAtivas = ValueNotifier<bool>(true);
+
+  /// Host da URL inicial: navegar no domínio do site (sem o "www.") ou num
+  /// subdomínio dele é sempre permitido ([BrowserHelper.isSameOriginHost]).
   String originHost = '';
   String? currentUrl;
   String? lastAllowedUrl;
   int? detectedChapter;
   String? pageTitle;
 
-  /// Domínios permitidos além da origem (padrão + banco).
-  List<String> allowedDomains = BrowserHelper.defaultAllowedDomains;
+  /// Domínios que o usuário liberou além do site do link (lidos do banco). O
+  /// app não traz nenhum embutido (docs/diretrizes-projeto.md).
+  List<String> allowedDomains = const [];
 
   bool _telaCheiaMobile = false;
 
@@ -70,6 +76,10 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
   /// Aplica [script] (o [scriptRolagem] atual) na página aberta e nas
   /// próximas. Cada tela liga ao seu navegador.
   Future<void> aplicarRolagem(String script) async {}
+
+  /// Aplica [script] (o [scriptSobreposicoes] atual) na página aberta e nas
+  /// próximas. Cada tela liga ao seu navegador, como em [aplicarRolagem].
+  Future<void> aplicarSobreposicoes(String script) async {}
 
   void iniciarLeitor() {
     originHost = BrowserHelper.originHostFromUrl(urlInicial) ?? '';
@@ -93,13 +103,14 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
     isVertical.dispose();
     configRolagem.dispose();
     painelRolagemAberto.dispose();
+    sobreposicoesAtivas.dispose();
   }
 
   // ---------------------------------------------------------------------------
   // URL E CAPÍTULO
   // ---------------------------------------------------------------------------
 
-  /// Permitida: o host da origem (ou subdomínio) ou um domínio da lista,
+  /// Permitida: o site da origem (ou subdomínio) ou um domínio da lista,
   /// sempre comparando o HOST (um domínio permitido escondido na query string
   /// não libera a navegação).
   bool urlPermitida(String url) {
@@ -228,7 +239,68 @@ mixin LeitorBase<T extends StatefulWidget> on State<T> {
       onFullScreen: alternarTelaCheia,
       onToggleOrientation: alternarOrientacaoBarra,
       onScrollSettings: leitorDesktop ? alternarPainelRolagem : null,
+      sobreposicoesAtivas: sobreposicoesAtivas,
+      onAlternarSobreposicoes: alternarSobreposicoes,
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // AVISOS POR CIMA DA PÁGINA (SOBREPOSIÇÕES)
+  // ---------------------------------------------------------------------------
+
+  /// Script que liga ou desliga a regra no site aberto.
+  String get scriptSobreposicoes =>
+      BrowserHelper.scriptSobreposicoes(ativa: sobreposicoesAtivas.value);
+
+  String get _dominioDoSite => BrowserHelper.dominioDoSite(originHost);
+
+  /// Lê se a regra está ligada no site; a tela chama antes de montar os
+  /// scripts.
+  Future<void> carregarConfiguracaoSobreposicoes() async {
+    if (_dominioDoSite.isEmpty) return;
+    try {
+      final ativa = await ConfigSobreposicoes.ativaNoSite(_dominioDoSite);
+      if (!mounted) return;
+      sobreposicoesAtivas.value = ativa;
+      if (!ativa) logLeitor('Avisos por cima da página: regra desligada aqui');
+    } catch (e) {
+      logLeitor('Erro ao carregar a regra de sobreposições: $e');
+    }
+  }
+
+  /// Botão da barra: liga ou desliga a regra no site aberto, na hora (sem
+  /// recarregar), e grava para as próximas vezes.
+  Future<void> alternarSobreposicoes() async {
+    final ativa = !sobreposicoesAtivas.value;
+    sobreposicoesAtivas.value = ativa;
+    logLeitor(
+      'Avisos por cima da página: ${ativa ? 'escondidos' : 'mostrados'}',
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              ativa
+                  ? 'Avisos por cima da página serão escondidos neste site'
+                  : 'Avisos por cima da página serão mostrados neste site',
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+    }
+    try {
+      await aplicarSobreposicoes(scriptSobreposicoes);
+    } catch (e) {
+      logLeitor('Falha ao aplicar a regra de sobreposições: $e');
+    }
+    if (_dominioDoSite.isEmpty) return;
+    try {
+      await ConfigSobreposicoes.definir(_dominioDoSite, ativa: ativa);
+    } catch (e) {
+      logLeitor('Erro ao salvar a regra de sobreposições: $e');
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -71,12 +71,12 @@ void main() {
   group('URL permitida', () {
     testWidgets('origem, subdomínio e lista; outro host não', (tester) async {
       final leitor = await montar(tester);
-      leitor.allowedDomains = ['leituramanga.net'];
+      leitor.allowedDomains = ['outrosite.example'];
 
       expect(leitor.originHost, 'site.com');
       expect(leitor.urlPermitida('https://site.com/outro'), isTrue);
       expect(leitor.urlPermitida('https://img.site.com/a.png'), isTrue);
-      expect(leitor.urlPermitida('https://leituramanga.net/cap-2'), isTrue);
+      expect(leitor.urlPermitida('https://outrosite.example/cap-2'), isTrue);
       expect(leitor.urlPermitida('https://anuncio.com/?r=site.com'), isFalse);
       expect(leitor.urlPermitida('about:blank'), isFalse);
       expect(leitor.urlPermitida(''), isFalse);

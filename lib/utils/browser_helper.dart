@@ -1,18 +1,16 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 
 import '../database/db_helper.dart';
 import 'config_rolagem.dart';
 
-/// UA, adblock e stealth compartilhados.
-/// Padrão: lê SQLite primeiro (offline); opcionalmente sincroniza remoto.
+/// User agent, bloqueio de anúncios e scripts de compatibilidade dos leitores.
+/// As listas vêm do código e do banco (SQLite); nada é baixado de fora.
 class BrowserHelper {
   static const String kUserAgent = 'user_agent_custom';
   static const String kAdblockDomains = 'adblock_domains_list';
   static const String kAllowedDomains = 'allowed_domains_list';
-  static const String kLastUpdate = 'browser_helper_last_update';
 
   static const String defaultUserAgentLinux =
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -133,7 +131,7 @@ class BrowserHelper {
     'googletagservices.com',
     'google-analytics.com',
     'static.cloudflareinsights.com',
-    // Rede dos pop-ups falsos do Opera no Nexus (zona 156269). Troca de
+    // Rede de pop-ups falsos de "instale o navegador" (zona 156269). Troca de
     // domínio com frequência; o que segura de verdade é a regra do <html>
     // no script de adblock (removerForaDoBody)
     'leedbrott.com',
@@ -148,24 +146,14 @@ class BrowserHelper {
     'fundingchoicesmessages.google.com',
   ];
 
-  /// Elementos escondidos por CSS em todos os sites: avisos e espaços de
-  /// anúncio que ficam dentro da página, onde o bloqueio por domínio não
-  /// alcança (inclusive os do próprio site). Use seletores bem específicos:
-  /// valem para qualquer página aberta no leitor.
+  /// Elementos escondidos por CSS em todos os sites: espaços de anúncio que
+  /// ficam dentro da página, onde o bloqueio por domínio não alcança. Só
+  /// regras genéricas (as diretrizes proíbem regra feita para um site):
+  /// avisos que cobrem a página ficam com a regra de sobreposições
+  /// ([getAdBlockScript], `removerSobreposicoes`).
   static const List<String> seletoresEscondidos = [
-    // Blocos do Google AdSense (ex.: "Descobrir mais" no Nexus)
+    // Blocos do Google AdSense (ex.: "Descobrir mais" e anúncios no meio)
     'ins.adsbygoogle',
-    // Balão "Apoie o site" do plugin de doações MangaJS (mangalivre.blog).
-    // O "ocultar por 10 min" dele fica gravado no servidor, então não dá
-    // para impedir que abra; ele não trava a rolagem, só cobre a tela
-    '#mjsDonationModal',
-  ];
-
-  /// Extras opcionais (a origem da sessão no screen é o principal).
-  static const List<String> defaultAllowedDomains = [
-    'nexustoons.com',
-    'nx-toons.xyz',
-    'leituramanga.net',
   ];
 
   // ---------------------------------------------------------------------------
@@ -206,13 +194,11 @@ class BrowserHelper {
     return List<String>.from(defaultAdDomains);
   }
 
-  static Future<List<String>> getAllowedDomains() async {
-    final fromDb = await _readStringList(kAllowedDomains);
-    if (fromDb.isNotEmpty) {
-      return {...defaultAllowedDomains, ...fromDb}.toList();
-    }
-    return List<String>.from(defaultAllowedDomains);
-  }
+  /// Domínios que o usuário liberou além do site do link (hoje nenhuma tela
+  /// grava; é a base do futuro "adblock por site"). O app não traz nenhum:
+  /// as diretrizes proíbem lista embutida de sites (docs/diretrizes-projeto.md).
+  static Future<List<String>> getAllowedDomains() =>
+      _readStringList(kAllowedDomains);
 
   static Future<List<String>> _readStringList(String key) async {
     try {
@@ -265,19 +251,31 @@ class BrowserHelper {
     return uri.host.toLowerCase();
   }
 
+  /// Domínio do site a partir do host do link: sem o "www." do começo, para
+  /// que `www.site.com`, `site.com` e os subdomínios dele contem como o mesmo
+  /// site (alguns sites trocam entre eles). Não tira o "www." quando sobraria
+  /// só o sufixo (ex.: `www.com`).
+  static String dominioDoSite(String host) {
+    final h = host.toLowerCase();
+    if (h.startsWith('www.') && h.indexOf('.', 4) > 0) return h.substring(4);
+    return h;
+  }
+
+  /// A URL é do site da sessão: o domínio de [originHost] ([dominioDoSite])
+  /// ou um subdomínio dele.
   static bool isSameOriginHost(String url, String originHost) {
     final uri = Uri.tryParse(url);
     if (uri == null || uri.host.isEmpty) return false;
     final host = uri.host.toLowerCase();
-    final o = originHost.toLowerCase();
+    final o = dominioDoSite(originHost);
     if (o.isEmpty) return false;
     return host == o || host.endsWith('.$o');
   }
 
   /// Verifica pelo HOST (não pela URL inteira), para que um domínio permitido
   /// escondido em query string / caminho não libere a navegação.
-  /// - Entrada com ponto (ex.: 'nexustoons.com'): host igual ou subdomínio.
-  /// - Entrada sem ponto (ex.: 'nexustoons'): aparece como trecho do host.
+  /// - Entrada com ponto (ex.: 'site.com'): host igual ou subdomínio.
+  /// - Entrada sem ponto (ex.: 'site'): aparece como trecho do host.
   static bool hostMatchesAllowed(String url, Iterable<String> domains) {
     final host = originHostFromUrl(url);
     if (host == null) return false;
@@ -294,50 +292,37 @@ class BrowserHelper {
     return false;
   }
 
-  static Future<bool> isAllowedUrl(String url) async {
-    final lower = url.toLowerCase();
-    if (lower.isEmpty ||
-        lower.startsWith('about:') ||
-        lower.startsWith('data:')) {
-      return false;
-    }
-    final allowed = await getAllowedDomains();
-    return hostMatchesAllowed(url, allowed);
-  }
-
   // ---------------------------------------------------------------------------
-  // STEALTH
+  // COMPATIBILIDADE
   // ---------------------------------------------------------------------------
+  // O navegador embutido tem marcas que alguns sites confundem com robô (sem
+  // window.chrome, pontes do app, "Android WebView" nos client hints). Os
+  // scripts abaixo só tiram essas marcas, para a página tratar o leitor como
+  // um navegador comum; os valores do aparelho continuam os reais
+  // (docs/diretrizes-projeto.md: "compatibilidade").
 
-  /// Script de stealth original (mantido sem alterações: usado em iOS, Linux
-  /// e quando o interruptor do Android coerente estiver desligado).
-  static const String stealthScript = r'''
+  /// Compatibilidade no Linux (CEF) e no iOS. Até a v2.2.1 também falseava
+  /// `webdriver`, `platform`, `hardwareConcurrency` e `deviceMemory`; isso
+  /// saiu por ir além de compatibilidade. Se um site voltar a recusar o
+  /// leitor no Linux, confira primeiro o `navigator.webdriver` do CEF.
+  static const String scriptCompatibilidade = r'''
 (function() {
-  if (window.__mangaStealthInstalled) return;
-  window.__mangaStealthInstalled = true;
+  if (window.__mangaCompatibilidade) return;
+  window.__mangaCompatibilidade = true;
 
-  function safeDefine(obj, prop, value) {
-    try {
-      const desc = Object.getOwnPropertyDescriptor(obj, prop) ||
-                   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(obj), prop);
-      if (!desc || desc.configurable) {
-        Object.defineProperty(obj, prop, {
-          get: function() { return value; },
-          configurable: true
-        });
-      }
-    } catch (e) {}
-  }
-
-  try { safeDefine(Navigator.prototype, 'webdriver', undefined); } catch (e) {}
+  // O Chrome de verdade tem window.chrome; o navegador embutido, não
   if (!window.chrome) {
     window.chrome = { runtime: {}, app: { isInstalled: false } };
   }
-  try { safeDefine(navigator, 'languages', ['pt-BR', 'pt', 'en-US', 'en']); } catch (e) {}
-  try { safeDefine(navigator, 'platform', 'Linux x86_64'); } catch (e) {}
-  try { safeDefine(navigator, 'hardwareConcurrency', 8); } catch (e) {}
-  try { safeDefine(navigator, 'deviceMemory', 8); } catch (e) {}
+  // Idioma do usuário (o CEF vem em inglês)
+  try {
+    Object.defineProperty(navigator, 'languages', {
+      get: function() { return ['pt-BR', 'pt', 'en-US', 'en']; },
+      configurable: true
+    });
+  } catch (e) {}
 
+  // Câmera e microfone recusados direto (evita pedidos de permissão)
   try {
     const rejectMedia = function() {
       return Promise.reject(new DOMException('NotAllowedError', 'NotAllowedError'));
@@ -369,18 +354,17 @@ class BrowserHelper {
 })();
 ''';
 
-  /// Stealth coerente para ANDROID (WebView do Chromium).
-  /// Diferente do [stealthScript], NÃO falseia platform / languages /
-  /// hardwareConcurrency / deviceMemory / webdriver: o WebView já devolve os
-  /// valores reais do aparelho, que batem com o UA de Chrome Android. O que ele
-  /// faz é remover o que denuncia "app embutido":
+  /// Compatibilidade no ANDROID (WebView do Chromium). Não mexe nos valores
+  /// do aparelho (platform, languages, hardwareConcurrency, deviceMemory,
+  /// webdriver): o WebView já devolve os reais, que batem com o UA de Chrome
+  /// Android. Só tira as marcas de "app embutido":
   ///  - a marca "Android WebView" em navigator.userAgentData (client hints);
   ///  - as pontes window.Flutter / window.Android;
-  ///  - captura de mídia (mantido do script original, evita pedidos de permissão).
-  static const String stealthScriptAndroid = r'''
+  ///  - captura de mídia (evita pedidos de permissão).
+  static const String scriptCompatibilidadeAndroid = r'''
 (function() {
-  if (window.__mangaStealthAndroid) return;
-  window.__mangaStealthAndroid = true;
+  if (window.__mangaCompatibilidadeAndroid) return;
+  window.__mangaCompatibilidadeAndroid = true;
 
   // 1) navigator.userAgentData: troca a marca "Android WebView" por "Google Chrome"
   try {
@@ -472,7 +456,8 @@ class BrowserHelper {
   // ADBLOCK (JS)
   // ---------------------------------------------------------------------------
 
-  /// [sessionOriginHost] = host de initialUrl (ex.: leituramanga.net).
+  /// [sessionOriginHost] = host da URL inicial; vale o domínio do site
+  /// ([dominioDoSite]) e os subdomínios dele, como no [isSameOriginHost].
   /// [adDomains] / [allowedDomains] podem ser passados para evitar reler o banco.
   /// [diagnostico]: a página guarda em `window.__mangaDiag` as requisições que
   /// falharam, os erros de JavaScript e as navegações bloqueadas, para o
@@ -480,16 +465,20 @@ class BrowserHelper {
   /// [bloquearNavegacaoPorScript]: cancela pela Navigation API a navegação da
   /// página inteira para host não permitido. Só o Linux liga: o BrowserScreen
   /// já cancela pelo shouldOverrideUrlLoading. EM TESTE: suspeito de causar
-  /// "Erro ao carregar o capítulo" no Nexus.
+  /// "Erro ao carregar o capítulo" num site ao abrir um link salvo.
   /// [bloquearElementosDeAnuncio]: recusa que a página insira `<script>` ou
   /// `<iframe>` de domínio de anúncio (o anúncio nem roda). Essencial no
   /// Linux, onde o CEF não bloqueia o download; no Windows é proteção extra.
   /// [removerForaDoBody]: remove o que a página prender direto no `<html>`,
   /// fora do `<head>` e do `<body>`. Página de verdade não põe nada ali (o
   /// leitor de HTML move para o `<body>` o que vem depois dele), mas as redes
-  /// de anúncio põem: os pop-ups falsos do Opera no Nexus e o anúncio fixo do
-  /// Google. Não depende de domínio, então pega as redes que trocam de
+  /// de anúncio põem: pop-ups falsos de "instale o navegador" e o anúncio fixo
+  /// do Google. Não depende de domínio, então pega as redes que trocam de
   /// domínio toda semana.
+  /// [removerSobreposicoes]: esconde o que cobre a página sozinho (aviso de
+  /// doação ou de "desative o bloqueador", anúncio em tela cheia), por uma
+  /// regra genérica, sem lista de sites. O usuário desliga por site no botão
+  /// da barra do leitor ([scriptSobreposicoes]).
   ///
   /// As listas vão para o JS como JSON e a comparação é feita pelo HOST
   /// (nada de regex interpolada, então entradas com "/" não quebram o script).
@@ -501,6 +490,7 @@ class BrowserHelper {
     bool bloquearNavegacaoPorScript = false,
     bool bloquearElementosDeAnuncio = true,
     bool removerForaDoBody = true,
+    bool removerSobreposicoes = true,
   }) async {
     final ads = adDomains ?? await getAdDomains();
     final allowed = allowedDomains ?? await getAllowedDomains();
@@ -508,7 +498,7 @@ class BrowserHelper {
     final allowSet = <String>{
       ...allowed.map((e) => e.trim().toLowerCase()),
       if (sessionOriginHost != null && sessionOriginHost.isNotEmpty)
-        sessionOriginHost.toLowerCase(),
+        dominioDoSite(sessionOriginHost),
     }..removeWhere((e) => e.isEmpty);
 
     final adList = ads
@@ -551,6 +541,7 @@ class BrowserHelper {
   const BLOQUEAR_NAVEGACAO = $bloquearNavegacaoPorScript;
   const BLOQUEAR_ELEMENTOS = $bloquearElementosDeAnuncio;
   const REMOVER_FORA_DO_BODY = $removerForaDoBody;
+  const REMOVER_SOBREPOSICOES = $removerSobreposicoes;
   const DIAG = DIAGNOSTICO
     ? (window.__mangaDiag = window.__mangaDiag ||
         { bloqueios: [], http: [], erros: [], elementos: [] })
@@ -804,17 +795,20 @@ class BrowserHelper {
           }
         }
       }).observe(document, { childList: true, subtree: true });
-    } catch (_) {}
+    } catch (e) {
+      anotar('erros', 'bloqueio de elementos desligado: ' + e);
+    }
   }
 
-  // Anúncio preso direto no <html>, fora do <head> e do <body>: os pop-ups
-  // falsos do Opera no Nexus vêm num div fixo com z-index 2147483646 e
+  // Anúncio preso direto no <html>, fora do <head> e do <body>: pop-ups
+  // falsos de "instale o navegador" vêm num div fixo com z-index 2147483646 e
   // quadros sem endereço, que o bloqueio por domínio não alcança. Observa só
   // os filhos do <html> (sem subtree), então custa quase nada.
   if (REMOVER_FORA_DO_BODY) {
     try {
-      const raiz = document.documentElement;
       const limparRaiz = function() {
+        const raiz = document.documentElement;
+        if (!raiz) return;
         const filhos = raiz.children;
         for (let i = filhos.length - 1; i >= 0; i--) {
           const el = filhos[i];
@@ -824,22 +818,203 @@ class BrowserHelper {
           el.remove();
         }
       };
-      new MutationObserver(limparRaiz).observe(raiz, { childList: true });
-      limparRaiz();
-    } catch (_) {}
+      // O app injeta o script no começo do documento, quando o <html> ainda
+      // não existe (observe(null) dá erro e desligava a regra sem aviso):
+      // observa o document até o <html> aparecer, e liga a regra nele
+      let raizObservada = null;
+      const observarRaiz = function() {
+        const raiz = document.documentElement;
+        if (!raiz || raiz === raizObservada) return;
+        raizObservada = raiz;
+        new MutationObserver(limparRaiz).observe(raiz, { childList: true });
+        limparRaiz();
+      };
+      new MutationObserver(observarRaiz).observe(document, { childList: true });
+      observarRaiz();
+    } catch (e) {
+      anotar('erros', 'regra do <html> desligada: ' + e);
+    }
   }
 
-  // Avisos e espaços de anúncio dentro da página (BrowserHelper.
-  // seletoresEscondidos), como o "Descobrir mais" do Google no Nexus e o
-  // balão de doações do mangalivre: escondidos por CSS. No Linux o script do
-  // Google vem escrito no HTML e carrega (o CEF não bloqueia o download). A
-  // folha é construída (adoptedStyleSheets), não é elemento: a regra do
+  // Espaços de anúncio dentro da página (BrowserHelper.seletoresEscondidos),
+  // como os blocos do Google AdSense: escondidos por CSS. No Linux o script
+  // do Google vem escrito no HTML e carrega (o CEF não bloqueia o download).
+  // A folha é construída (adoptedStyleSheets), não é elemento: a regra do
   // <html> acima não a remove.
   try {
     const estilo = new CSSStyleSheet();
     estilo.replaceSync($cssEscondidosJson);
     document.adoptedStyleSheets = document.adoptedStyleSheets.concat([estilo]);
-  } catch (_) {}
+  } catch (e) {
+    anotar('erros', 'CSS dos anúncios desligado: ' + e);
+  }
+
+  // Sobreposição que cobre a página sozinha (aviso de doação ou de "desative
+  // o bloqueador", anúncio em tela cheia): escondida por uma regra genérica,
+  // sem lista de sites. Conta como sobreposição o elemento fixo, visível e
+  // clicável, por cima de tudo (z-index >= 1000), que cobre pelo menos 60% da
+  // tela e apareceu sem um clique ou tecla do usuário logo antes: o menu, o
+  // login e a lista de capítulos que o usuário abre ficam. O leitor em tela
+  // cheia de um site também fica (conteúdo maior que a tela, imagens grandes,
+  // vídeo ou canvas). Só esconde (display: none), não remove, para o site
+  // seguir funcionando; e solta a trava de rolagem que o próprio aviso pôs
+  // (overflow: hidden no style do <html>/<body>). O botão da barra do leitor
+  // desliga a regra por site: window.__mangaSobreposicoes.ativa (ver
+  // BrowserHelper.scriptSobreposicoes).
+  if (REMOVER_SOBREPOSICOES && window.top === window) {
+    try {
+      const estado = window.__mangaSobreposicoes = window.__mangaSobreposicoes || {};
+      const ativa = function() { return estado.ativa !== false; };
+      const escondidos = [];
+      const travas = [];
+      let ultimaInteracao = 0;
+
+      const descrever = function(el) {
+        return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
+          (el.className && typeof el.className === 'string'
+            ? '.' + el.className.trim().split(' ')[0] : '');
+      };
+      const ehSobreposicao = function(el) {
+        if (!el || el.nodeType !== 1 || el === document.body ||
+            el === document.documentElement) return false;
+        const cs = getComputedStyle(el);
+        if (cs.position !== 'fixed' || cs.display === 'none' ||
+            cs.visibility === 'hidden' || cs.pointerEvents === 'none') return false;
+        if (parseFloat(cs.opacity) < 0.1) return false;
+        if (!(parseInt(cs.zIndex, 10) >= 1000)) return false;
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const r = el.getBoundingClientRect();
+        const largura = Math.min(r.right, vw) - Math.max(r.left, 0);
+        const altura = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+        if (largura <= 0 || altura <= 0 || largura * altura < 0.6 * vw * vh) return false;
+        // Leitor em tela cheia do site, não um aviso: conteúdo maior que a
+        // tela, vídeo ou canvas, ou imagem alta como uma página de capítulo
+        // (na tela ou no tamanho original, já que pode não ter carregado).
+        // Fotos pequenas (avatares) e banners largos e baixos não contam.
+        if (el.scrollHeight > vh * 1.5) return false;
+        if (el.querySelector('video, canvas')) return false;
+        const imagens = el.getElementsByTagName('img');
+        for (let i = 0; i < imagens.length; i++) {
+          const img = imagens[i];
+          if (img.getBoundingClientRect().height > vh * 0.8 ||
+              img.naturalHeight >= 1000 ||
+              parseInt(img.getAttribute('height') || '0', 10) >= 1000) return false;
+        }
+        return true;
+      };
+      const soltarTrava = function() {
+        [document.documentElement, document.body].forEach(function(el) {
+          if (!el) return;
+          ['overflow', 'overflow-y'].forEach(function(prop) {
+            if (el.style.getPropertyValue(prop) !== 'hidden') return;
+            travas.push({ el: el, prop: prop, prioridade: el.style.getPropertyPriority(prop) });
+            el.style.removeProperty(prop);
+          });
+        });
+      };
+      const esconder = function(el) {
+        if (el.__mangaSobreposicao) return;
+        el.__mangaSobreposicao = true;
+        escondidos.push({
+          el: el,
+          valor: el.style.getPropertyValue('display'),
+          prioridade: el.style.getPropertyPriority('display'),
+        });
+        el.style.setProperty('display', 'none', 'important');
+        anotar('elementos', 'sobreposição: ' + descrever(el));
+        soltarTrava();
+      };
+      const restaurar = function() {
+        while (escondidos.length) {
+          const e = escondidos.pop();
+          e.el.__mangaSobreposicao = false;
+          if (e.valor) e.el.style.setProperty('display', e.valor, e.prioridade);
+          else e.el.style.removeProperty('display');
+        }
+        while (travas.length) {
+          const t = travas.pop();
+          t.el.style.setProperty(t.prop, 'hidden', t.prioridade);
+        }
+      };
+
+      // O que cobre a tela logo depois de um clique ou tecla foi aberto pelo
+      // usuário (menu, login, lista de capítulos): fica marcado e nunca é
+      // escondido, nem depois
+      const conferir = function(lote) {
+        if (!ativa()) return;
+        const doUsuario = Date.now() - ultimaInteracao < 1500;
+        lote.forEach(function(el) {
+          if (!el.isConnected || el.__mangaDoUsuario || !ehSobreposicao(el)) return;
+          if (doUsuario) el.__mangaDoUsuario = true;
+          else esconder(el);
+        });
+      };
+      // Até 3 níveis abaixo do <body>, onde ficam os avisos (é barato)
+      const varrer = function() {
+        if (!document.body) return;
+        conferir(Array.from(document.body.querySelectorAll(
+          'body > *, body > * > *, body > * > * > *')));
+      };
+      // O botão da barra liga e desliga sem recarregar a página (definido
+      // antes dos observadores, para funcionar mesmo se um deles falhar)
+      estado.aplicar = function() {
+        if (ativa()) varrer();
+        else restaurar();
+      };
+      ['pointerdown', 'keydown', 'touchstart'].forEach(function(tipo) {
+        window.addEventListener(tipo, function() {
+          ultimaInteracao = Date.now();
+          // Marca o que o usuário abrir agora, inclusive com animação
+          [150, 600, 1200].forEach(function(ms) { setTimeout(varrer, ms); });
+        }, true);
+      });
+
+      // Elementos novos ou que mudaram (ex.: ganharam a classe que abre o
+      // aviso), em lotes: confere após 150 ms e de novo após 1 s (aviso que
+      // entra com animação de transparência)
+      let pendentes = [];
+      let agendado = false;
+      const agendar = function(el) {
+        if (!el || el.nodeType !== 1) return;
+        pendentes.push(el);
+        if (agendado) return;
+        agendado = true;
+        setTimeout(function() {
+          agendado = false;
+          const lote = pendentes;
+          pendentes = [];
+          conferir(lote);
+          setTimeout(function() { conferir(lote); }, 1000);
+        }, 150);
+      };
+      new MutationObserver(function(mutacoes) {
+        // Enquanto o HTML carrega, a varredura do DOMContentLoaded basta
+        if (!ativa() || document.readyState === 'loading') return;
+        for (let i = 0; i < mutacoes.length; i++) {
+          const m = mutacoes[i];
+          if (m.type === 'attributes') { agendar(m.target); continue; }
+          for (let j = 0; j < m.addedNodes.length; j++) agendar(m.addedNodes[j]);
+        }
+        // O document, não o <html>: no começo do documento, quando o app
+        // injeta o script, o <html> ainda não existe
+      }).observe(document, {
+        childList: true, subtree: true,
+        attributes: true, attributeFilter: ['class', 'style', 'open', 'hidden'],
+      });
+      // Depois de carregar, confere de novo por alguns segundos: avisos que
+      // abrem com atraso ou entram com animação (opacidade ainda baixa na
+      // primeira olhada) sem mudar o próprio elemento
+      const depoisDeCarregar = function() {
+        varrer();
+        [1000, 3000, 6000, 12000].forEach(function(ms) { setTimeout(varrer, ms); });
+      };
+      document.addEventListener('DOMContentLoaded', varrer);
+      if (document.readyState === 'complete') depoisDeCarregar();
+      else window.addEventListener('load', depoisDeCarregar);
+    } catch (e) {
+      anotar('erros', 'regra de sobreposições desligada: ' + e);
+    }
+  }
 
   // Intercepta cliques abusivos na fase de captura (true)
   document.addEventListener('click', function(e) {
@@ -890,6 +1065,19 @@ class BrowserHelper {
 })();
 ''';
   }
+
+  /// Liga ou desliga a regra de sobreposições do adblock na página
+  /// ([getAdBlockScript], `removerSobreposicoes`). Vai como user script antes
+  /// do adblock e, rodado de novo na página aberta, vale na hora: desligar
+  /// mostra de volta o que tinha sido escondido.
+  static String scriptSobreposicoes({required bool ativa}) =>
+      '''
+(function() {
+  var s = window.__mangaSobreposicoes = window.__mangaSobreposicoes || {};
+  s.ativa = $ativa;
+  if (typeof s.aplicar === 'function') s.aplicar();
+})();
+''';
 
   // ---------------------------------------------------------------------------
   // ROLAGEM DO MOUSE (JS)
@@ -1076,91 +1264,4 @@ class BrowserHelper {
   };
 })();
 ''';
-
-  // ---------------------------------------------------------------------------
-  // SYNC REMOTO
-  // ---------------------------------------------------------------------------
-
-  static final RegExp _chromeVersionRe = RegExp(r'^\d{2,3}(\.\d{1,5}){0,3}$');
-  static final RegExp _domainEntryRe = RegExp(
-    r'^[a-z0-9][a-z0-9._-]*[a-z0-9](/\S*)?$',
-  );
-
-  static bool _isValidDomainEntry(String s) {
-    return s.length >= 3 && s.length <= 200 && _domainEntryRe.hasMatch(s);
-  }
-
-  static bool _isValidUserAgent(String s) {
-    return s.startsWith('Mozilla/5.0') && s.length <= 400;
-  }
-
-  static List<String> _sanitizeDomainList(List raw) {
-    return raw
-        .whereType<String>()
-        .map((s) => s.trim().toLowerCase())
-        .where(_isValidDomainEntry)
-        .toSet()
-        .take(2000)
-        .toList();
-  }
-
-  static Future<bool> syncFromRemote(String endpointUrl) async {
-    try {
-      final endpoint = Uri.tryParse(endpointUrl);
-      if (endpoint == null || !endpoint.hasScheme || endpoint.host.isEmpty) {
-        return false;
-      }
-      // Em release só aceita https (os dados remotos ampliam a lista de
-      // navegação permitida e entram no JS injetado).
-      if (endpoint.scheme != 'https' && !kDebugMode) {
-        debugPrint(
-          '[BrowserHelper] syncFromRemote: endpoint precisa ser https',
-        );
-        return false;
-      }
-
-      final response = await http
-          .get(endpoint)
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) return false;
-
-      final data = jsonDecode(response.body);
-      if (data is! Map) return false;
-
-      final db = DbHelper();
-
-      final chromeVersion = data['chrome_version']?.toString();
-      if (chromeVersion != null && _chromeVersionRe.hasMatch(chromeVersion)) {
-        final ua =
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36';
-        await db.setConfig(kUserAgent, ua);
-      }
-
-      final customUa = data['user_agent'];
-      if (customUa is String && _isValidUserAgent(customUa)) {
-        await db.setConfig(kUserAgent, customUa);
-      }
-
-      // Só entradas com formato válido de domínio/palavra-chave são gravadas
-      if (data['blocked_domains'] is List) {
-        final validBlocked = _sanitizeDomainList(
-          data['blocked_domains'] as List,
-        );
-        await db.setConfig(kAdblockDomains, jsonEncode(validBlocked));
-      }
-
-      if (data['allowed_domains'] is List) {
-        final validAllowed = _sanitizeDomainList(
-          data['allowed_domains'] as List,
-        );
-        await db.setConfig(kAllowedDomains, jsonEncode(validAllowed));
-      }
-
-      await db.setConfig(kLastUpdate, DateTime.now().toIso8601String());
-      return true;
-    } catch (e) {
-      debugPrint('[BrowserHelper] syncFromRemote: $e');
-      return false;
-    }
-  }
 }

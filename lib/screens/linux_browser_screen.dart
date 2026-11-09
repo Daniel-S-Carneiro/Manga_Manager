@@ -41,6 +41,7 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
   // então trocar o da rolagem vale para as próximas páginas)
   InjectUserScripts? _scriptsInjetados;
   UserScript? _userScriptRolagem;
+  UserScript? _userScriptSobreposicoes;
 
   Timer? _loadTimeout;
 
@@ -90,6 +91,21 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
   }
 
   @override
+  Future<void> aplicarSobreposicoes(String script) async {
+    final scripts = _scriptsInjetados;
+    final antigo = _userScriptSobreposicoes;
+    final novo = UserScript(script, ScriptInjectTime.LOAD_START);
+    if (scripts != null && antigo != null) {
+      final i = scripts.userScripts.indexOf(antigo);
+      if (i >= 0) scripts.userScripts[i] = novo;
+    }
+    _userScriptSobreposicoes = novo;
+    // Liga ou desliga a regra na página aberta
+    final c = _webViewController;
+    if (c != null && _isReady) await c.executeJavaScript(script);
+  }
+
+  @override
   void initState() {
     super.initState();
     iniciarLeitor();
@@ -128,10 +144,16 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
         bloquearNavegacaoPorScript: true,
       );
       allowedDomains = await BrowserHelper.getAllowedDomains();
-      final stealth = BrowserHelper.stealthScript;
+      final compatibilidade = BrowserHelper.scriptCompatibilidade;
       await carregarConfiguracoesRolagem();
       final rolagem = UserScript(scriptRolagem, ScriptInjectTime.LOAD_START);
       _userScriptRolagem = rolagem;
+      await carregarConfiguracaoSobreposicoes();
+      final sobreposicoes = UserScript(
+        scriptSobreposicoes,
+        ScriptInjectTime.LOAD_START,
+      );
+      _userScriptSobreposicoes = sobreposicoes;
 
       _log('config', {
         'userAgent': userAgent ?? '(padrão do CEF)',
@@ -143,7 +165,9 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
       // Sem o BrowserHelper.cliqueAgressivoScript: no CEF ele quebrou sites SPA
       // (testado), por isso o Linux fica só com o adblock "suave"
       final scripts = InjectUserScripts()
-        ..add(UserScript(stealth, ScriptInjectTime.LOAD_START))
+        ..add(UserScript(compatibilidade, ScriptInjectTime.LOAD_START))
+        // Antes do adblock: diz se a regra de sobreposições vale neste site
+        ..add(sobreposicoes)
         ..add(UserScript(_adBlockScriptCache, ScriptInjectTime.LOAD_START))
         ..add(UserScript(_adBlockScriptCache, ScriptInjectTime.LOAD_END))
         ..add(rolagem);
@@ -272,17 +296,21 @@ class _LinuxBrowserScreenState extends State<LinuxBrowserScreen>
                   });
             }
             c
-                .executeJavaScript(BrowserHelper.stealthScript)
+                .executeJavaScript(BrowserHelper.scriptCompatibilidade)
                 .then((_) {
-                  _log('stealth inject OK');
+                  _log('compatibilidade inject OK');
                 })
                 .catchError((e) {
-                  _log('stealth inject ERRO', e);
+                  _log('compatibilidade inject ERRO', e);
                 });
             // Garante a rolagem com o ajuste atual (se já estiver instalada,
             // só reconfigura)
             c.executeJavaScript(scriptRolagem).catchError((e) {
               _log('rolagem inject ERRO', e);
+            });
+            // Idem para a regra dos avisos por cima da página
+            c.executeJavaScript(scriptSobreposicoes).catchError((e) {
+              _log('sobreposições inject ERRO', e);
             });
           },
           onConsoleMessage: (level, message, source, line) {

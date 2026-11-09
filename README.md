@@ -17,6 +17,15 @@
 
 ---
 
+## O que é (e o que não é)
+
+O Manga Manager é um **gerenciador de leitura**. Funciona como um navegador com favoritos: você cadastra os mangás que lê com **os seus próprios links**, e o app guarda em que capítulo você parou e abre a página no navegador embutido.
+
+- O app não hospeda, não distribui e não indica conteúdo, nem vem com sites prontos.
+- O bloqueio de anúncios e de pop-ups funciona como o de navegadores como Brave e Firefox: muda só o que aparece na tela, sem liberar nada que o site não entregou.
+
+As regras completas estão em [docs/diretrizes-projeto.md](docs/diretrizes-projeto.md).
+
 ## Recursos
 
 ### Biblioteca
@@ -29,6 +38,7 @@
 
 - Abre o link do mangá dentro do app: WebView2 no Windows, Chromium (CEF) no Linux e WebView no Android.
 - Bloqueia anúncios, pop-ups e redirecionamentos, e mantém a navegação dentro do site do mangá.
+- Esconde avisos que cobrem a página sozinhos; um botão na barra do leitor desliga isso no site aberto.
 - Barra de controle flutuante (voltar, recarregar e tela cheia), na horizontal ou na vertical, que pode ser arrastada e lembra a posição.
 - Rolagem do mouse suave no computador, com distância por giro e suavidade ajustáveis pelo botão de mouse da barra.
 - Tela cheia com **F11**.
