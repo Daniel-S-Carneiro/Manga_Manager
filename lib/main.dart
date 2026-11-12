@@ -15,6 +15,7 @@ import 'widgets/manga_form.dart';
 import 'widgets/manga_card.dart';
 import 'utils/error_handler.dart';
 import 'utils/licencas.dart';
+import 'utils/lista_paginada.dart';
 import 'utils/theme_notifier.dart';
 import 'services/update_service.dart';
 import 'controllers/refresh_controller.dart';
@@ -247,11 +248,14 @@ class MainScreen extends StatefulWidget {
 class MainScreenState extends State<MainScreen> {
   bool _showForm = false;
   final ScrollController _scrollController = ScrollController();
-  final List<Map<String, dynamic>> _mangas = [];
+  // Lotes de 30 pela posição no banco; a exclusão passa pela lista para o
+  // próximo lote não pular um mangá (ver ListaPaginada)
+  final ListaPaginada<Map<String, dynamic>> _lista = ListaPaginada(
+    tamanhoDoLote: 30,
+  );
+  List<Map<String, dynamic>> get _mangas => _lista.itens;
+  bool get _hasMore => _lista.temMais;
   bool _isLoading = false;
-  bool _hasMore = true;
-  int _offset = 0;
-  final int _limit = 30;
 
   String _searchQuery = '';
   Timer? _debounceTimer;
@@ -343,23 +347,17 @@ class MainScreenState extends State<MainScreen> {
     _isLoading = true;
 
     try {
-      if (refresh) {
-        _offset = 0;
-        _mangas.clear();
-        _hasMore = true;
-      }
+      if (refresh) _lista.reiniciar();
 
       final dadosNovos = await DbHelper().getMangas(
-        limit: _limit,
-        offset: _offset,
+        limit: _lista.tamanhoDoLote,
+        offset: _lista.offset,
         query: _searchQuery,
       );
 
       if (mounted) {
         setState(() {
-          _offset += dadosNovos.length;
-          if (dadosNovos.length < _limit) _hasMore = false;
-          _mangas.addAll(dadosNovos);
+          _lista.acrescentarLote(dadosNovos);
           _isLoading = false;
         });
       }
@@ -548,16 +546,24 @@ class MainScreenState extends State<MainScreen> {
                                 key: ValueKey(manga['id']),
                                 manga: manga,
                                 onDelete: () async {
-                                  final mangaRemovido = _mangas[index];
-                                  setState(() {
-                                    _mangas.removeAt(index);
-                                  });
+                                  // Posição pelo id, na hora: o index do
+                                  // card pode ter ficado velho
+                                  final posicao = _mangas.indexWhere(
+                                    (m) => m['id'] == manga['id'],
+                                  );
+                                  if (posicao < 0) return;
+                                  final mangaRemovido = _mangas[posicao];
+                                  setState(() => _lista.remover(posicao));
 
                                   try {
                                     await DbHelper().deleteManga(manga['id']);
                                   } catch (error, stackTrace) {
+                                    if (!mounted) return;
                                     setState(() {
-                                      _mangas.insert(index, mangaRemovido);
+                                      _lista.desfazerRemocao(
+                                        posicao,
+                                        mangaRemovido,
+                                      );
                                     });
 
                                     if (context.mounted) {
