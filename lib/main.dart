@@ -10,9 +10,11 @@ import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'database/db_helper.dart';
+import 'widgets/barra_filtros.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/manga_form.dart';
 import 'widgets/manga_card.dart';
+import 'utils/classificacao.dart';
 import 'utils/error_handler.dart';
 import 'utils/licencas.dart';
 import 'utils/lista_paginada.dart';
@@ -257,7 +259,8 @@ class MainScreenState extends State<MainScreen> {
   bool get _hasMore => _lista.temMais;
   bool _isLoading = false;
 
-  String _searchQuery = '';
+  /// Busca e filtros de tipo e status da lista
+  FiltroLista _filtro = const FiltroLista();
   Timer? _debounceTimer;
 
   @override
@@ -335,56 +338,77 @@ class MainScreenState extends State<MainScreen> {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
 
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
-      setState(() {
-        _searchQuery = query;
-      });
-      _carregarLote(refresh: true);
+      _mudarFiltro(_filtro.copiarCom(busca: query));
     });
   }
 
+  /// Troca a busca ou os filtros e recarrega a lista do começo.
+  void _mudarFiltro(FiltroLista novo) {
+    if (novo == _filtro) return;
+    setState(() => _filtro = novo);
+    _carregarLote(refresh: true);
+  }
+
   Future<void> _carregarLote({bool refresh = false}) async {
-    if (_isLoading) return;
+    // Recarregar não espera o lote que está chegando: ele é da busca ou do
+    // filtro de antes e é descartado pela geração da lista. Antes, a troca
+    // era ignorada e a lista ficava com o resultado antigo
+    if (refresh) {
+      _lista.reiniciar();
+    } else if (_isLoading) {
+      return;
+    }
     _isLoading = true;
+    final geracao = _lista.geracao;
 
     try {
-      if (refresh) _lista.reiniciar();
-
       final dadosNovos = await DbHelper().getMangas(
         limit: _lista.tamanhoDoLote,
         offset: _lista.offset,
-        query: _searchQuery,
+        filtro: _filtro,
       );
 
-      if (mounted) {
-        setState(() {
-          _lista.acrescentarLote(dadosNovos);
-          _isLoading = false;
-        });
-      }
+      // Uma recarga mais nova cuida do _isLoading
+      if (!mounted || geracao != _lista.geracao) return;
+      setState(() {
+        _lista.acrescentarLote(dadosNovos, geracao: geracao);
+        _isLoading = false;
+      });
     } catch (error, stackTrace) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ErrorHandler.showFatalError(context, error, stackTrace);
-      }
+      if (!mounted || geracao != _lista.geracao) return;
+      setState(() => _isLoading = false);
+      ErrorHandler.showFatalError(context, error, stackTrace);
     }
   }
 
   Future<void> _atualizarMangaEspecifico(int id) async {
+    final filtro = _filtro;
+    final geracao = _lista.geracao;
     try {
-      final db = await DbHelper().database;
-      final resultado = await db.query(
-        'mangas',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      final atualizado = await DbHelper().getMangaNoFiltro(id, filtro);
+      // A lista foi recarregada enquanto isso (busca ou filtro novos)
+      if (!mounted || geracao != _lista.geracao) return;
 
-      if (resultado.isNotEmpty) {
-        final index = _mangas.indexWhere((m) => m['id'] == id);
-        if (index != -1) {
-          setState(() {
-            _mangas[index] = resultado.first;
-          });
-        }
+      final index = _mangas.indexWhere((m) => m['id'] == id);
+      if (index == -1) return;
+      if (atualizado != null) {
+        setState(() => _mangas[index] = atualizado);
+        return;
+      }
+
+      // Editado, não combina mais com a busca ou o filtro: sai da lista como
+      // numa exclusão, para o próximo lote não pular um item
+      final nome = _mangas[index]['nome_pt'];
+      setState(() => _lista.remover(index));
+      if (filtro.restringe) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '"$nome" saiu da lista: não combina mais com a busca ou os '
+              'filtros.',
+            ),
+          ),
+        );
       }
     } catch (error, stackTrace) {
       if (mounted) {
@@ -471,9 +495,26 @@ class MainScreenState extends State<MainScreen> {
                     onToggleTheme: ThemeController.toggleTheme,
                     onSearchChanged: _onSearchChanged,
                   ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isDesktop ? 204 : 16,
+                      isDesktop ? 0 : 10,
+                      isDesktop ? 204 : 16,
+                      4,
+                    ),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: BarraFiltros(
+                        filtro: _filtro,
+                        aoMudar: _mudarFiltro,
+                      ),
+                    ),
+                  ),
                   Expanded(
                     child: _mangas.isEmpty && _isLoading
                         ? const Center(child: CircularProgressIndicator())
+                        : _mangas.isEmpty && _filtro.restringe
+                        ? _semResultados(theme)
                         : ReorderableGridView.builder(
                             controller: _scrollController,
                             // Trava o scroll da grade enquanto o Ctrl está pressionado
@@ -553,18 +594,23 @@ class MainScreenState extends State<MainScreen> {
                                   );
                                   if (posicao < 0) return;
                                   final mangaRemovido = _mangas[posicao];
+                                  final geracao = _lista.geracao;
                                   setState(() => _lista.remover(posicao));
 
                                   try {
                                     await DbHelper().deleteManga(manga['id']);
                                   } catch (error, stackTrace) {
                                     if (!mounted) return;
-                                    setState(() {
-                                      _lista.desfazerRemocao(
-                                        posicao,
-                                        mangaRemovido,
-                                      );
-                                    });
+                                    // Lista recarregada no meio: ela já veio
+                                    // do banco, com o item
+                                    if (geracao == _lista.geracao) {
+                                      setState(() {
+                                        _lista.desfazerRemocao(
+                                          posicao,
+                                          mangaRemovido,
+                                        );
+                                      });
+                                    }
 
                                     if (context.mounted) {
                                       ErrorHandler.showFatalError(
@@ -580,11 +626,13 @@ class MainScreenState extends State<MainScreen> {
                               );
                             },
                             onReorder: (oldIndex, newIndex) {
-                              if (_searchQuery.isNotEmpty || _hasMore) {
+                              // A ordem é regravada a partir da lista em
+                              // memória, que precisa ser a biblioteca inteira
+                              if (_filtro.restringe || _hasMore) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                      'Não é possível alterar a ordem durante uma busca ou antes de carregar todos os mangás.',
+                                      'Não é possível alterar a ordem durante uma busca, com filtros ou antes de carregar todos os mangás.',
                                     ),
                                   ),
                                 );
@@ -634,6 +682,38 @@ class MainScreenState extends State<MainScreen> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Lista vazia por causa da busca ou dos filtros.
+  Widget _semResultados(ThemeData theme) {
+    final cor = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off_rounded, size: 48, color: cor),
+            const SizedBox(height: 12),
+            Text(
+              _filtro.temFiltro
+                  ? 'Nada encontrado com esses filtros.'
+                  : 'Nada encontrado.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: cor, fontSize: 16),
+            ),
+            if (_filtro.temFiltro) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => _mudarFiltro(_filtro.semFiltros()),
+                icon: const Icon(Icons.filter_alt_off_rounded),
+                label: const Text('Limpar filtros'),
+              ),
+            ],
+          ],
         ),
       ),
     );

@@ -5,61 +5,22 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:manga_manager/database/db_helper.dart';
 import 'package:manga_manager/services/backup_service.dart';
 import 'package:manga_manager/utils/tar_stream_helper.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tar/tar.dart';
 
-/// Pastas do sistema trocadas por pastas temporárias: a restauração apaga o
-/// banco e as capas, e não pode tocar nos dados reais do computador.
-class _PastasDeTeste extends PathProviderPlatform {
-  _PastasDeTeste(this.raiz);
-  final String raiz;
-
-  String _pasta(String nome) =>
-      (Directory(p.join(raiz, nome))..createSync(recursive: true)).path;
-
-  @override
-  Future<String?> getTemporaryPath() async => _pasta('temp');
-  @override
-  Future<String?> getApplicationSupportPath() async => _pasta('suporte');
-  @override
-  Future<String?> getApplicationDocumentsPath() async => _pasta('documentos');
-}
+import 'apoio/banco_de_teste.dart';
 
 void main() {
   late Directory raiz;
 
-  setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() async {
-    raiz = Directory.systemTemp.createTempSync('backup_teste');
-    PathProviderPlatform.instance = _PastasDeTeste(raiz.path);
-    // Nos testes o Flutter finge ser Android, e o DbHelper iria para a pasta
-    // de bancos do sqflite: como computador, ele usa as pastas acima
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    // Trava de segurança: nada fora da pasta temporária
-    final banco = await DbHelper().getDatabasePathString();
-    final capas = await DbHelper().getCapasDirectory();
-    expect(p.isWithin(raiz.path, banco), isTrue, reason: banco);
-    expect(p.isWithin(raiz.path, capas.path), isTrue, reason: capas.path);
-  });
-
-  tearDown(() async {
-    await DbHelper().closeDatabase();
-    DbHelper().unlockDatabase();
-    debugDefaultTargetPlatformOverride = null;
-    raiz.deleteSync(recursive: true);
-  });
+  setUpAll(iniciarSqfliteDeTeste);
+  setUp(() async => raiz = await prepararBancoDeTeste('backup_teste'));
+  tearDown(() => encerrarBancoDeTeste(raiz));
 
   /// Backup como o que o app do Windows gera: `manga_manager.db` (app
   /// instalado) com o caminho das capas no Windows, e a pasta `capas/`.
@@ -163,6 +124,85 @@ void main() {
     // Mesclar de novo não duplica
     final deNovo = await BackupService().restoreBackup(backup, merge: true);
     expect(deNovo, contains('0 novos'));
+  });
+
+  /// Backup de uma versão nova do app: banco com a coluna `tipo` e uma
+  /// coluna que esta versão ainda não conhece.
+  Future<String> backupComTipo() async {
+    final origem = Directory(p.join(raiz.path, 'origem_nova'))..createSync();
+    final capas = Directory(p.join(origem.path, 'capas'))..createSync();
+    File(p.join(capas.path, 'capa_9.jpg')).writeAsBytesSync([9]);
+
+    final dbPath = p.join(origem.path, DbHelper.nomeBancoRelease);
+    final db = await openDatabase(
+      dbPath,
+      version: DbHelper.versaoDoBanco + 1,
+      onCreate: (db, _) async {
+        await db.execute('''
+          CREATE TABLE mangas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome_pt TEXT NOT NULL,
+            nome_en TEXT,
+            capitulo INTEGER NOT NULL DEFAULT 1,
+            link_url TEXT,
+            capa_path TEXT,
+            status_leitura TEXT NOT NULL,
+            ordem_leitura INTEGER NOT NULL,
+            tipo TEXT,
+            coluna_do_futuro TEXT
+          )''');
+        await db.execute(
+          'CREATE TABLE configuracoes (chave TEXT PRIMARY KEY, valor TEXT)',
+        );
+      },
+    );
+    await db.insert('mangas', {
+      'nome_pt': 'Com tipo',
+      'status_leitura': 'Lendo',
+      'ordem_leitura': 1,
+      'tipo': 'manhwa',
+      'coluna_do_futuro': 'qualquer coisa',
+    });
+    await db.insert('mangas', {
+      'nome_pt': 'Sem tipo',
+      'status_leitura': 'Completo',
+      'ordem_leitura': 2,
+    });
+    await db.close();
+
+    final tarGz = p.join(raiz.path, 'backup_novo.tar.gz');
+    await TarStreamHelper.compressToTarGz(
+      dbPath: dbPath,
+      capasDirPath: capas.path,
+      tarGzPath: tarGz,
+    );
+    return tarGz;
+  }
+
+  test(
+    'mesclar: copia o tipo e ignora coluna de uma versão mais nova',
+    () async {
+      final backup = await backupComTipo();
+
+      final mensagem = await BackupService().restoreBackup(backup, merge: true);
+      expect(mensagem, contains('2 novos'));
+
+      final linhas = await DbHelper().getMangas();
+      expect(
+        {for (final l in linhas) l['nome_pt']: l['tipo']},
+        {'Com tipo': 'manhwa', 'Sem tipo': null},
+      );
+    },
+  );
+
+  test('substituir: banco de antes do tipo ganha a coluna ao abrir', () async {
+    final backup = await backupDoWindows();
+    await BackupService().restoreBackup(backup, merge: false);
+
+    final linhas = await DbHelper().getMangas();
+    expect(linhas, hasLength(3));
+    expect(linhas.every((l) => l.containsKey('tipo')), isTrue);
+    expect(linhas.map((l) => l['tipo']), everyElement(isNull));
   });
 
   group('exportar', () {

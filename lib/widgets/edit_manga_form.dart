@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import '../database/db_helper.dart';
 import '../utils/capa_helper.dart';
+import '../utils/classificacao.dart';
+import 'seletor_classificacao.dart';
 
 class EditMangaFormWidget extends StatefulWidget {
   final Map<String, dynamic> manga;
@@ -30,26 +32,11 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
   late TextEditingController _linkUrlController;
   String? _capaPath;
 
-  final List<Map<String, dynamic>> _statusOptions = [
-    {'label': 'Lendo', 'icon': Icons.menu_book_rounded, 'color': Colors.blue},
-    {
-      'label': 'Completo',
-      'icon': Icons.check_circle_rounded,
-      'color': Colors.green,
-    },
-    {
-      'label': 'Dropado',
-      'icon': Icons.cancel_rounded,
-      'color': Colors.redAccent,
-    },
-    {
-      'label': 'Planejo Ler',
-      'icon': Icons.watch_later_rounded,
-      'color': Colors.orange,
-    },
-  ];
-
   late String _statusSelecionado;
+
+  /// Chave do tipo; nulo é "sem tipo". Uma chave que esta versão não
+  /// conhece fica como está, a não ser que o usuário escolha outro tipo.
+  String? _tipo;
 
   @override
   void initState() {
@@ -68,11 +55,11 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
     );
     _capaPath = null;
 
-    final statusBanco = widget.manga['status_leitura'];
     _statusSelecionado =
-        _statusOptions.any((opt) => opt['label'] == statusBanco)
-        ? statusBanco
-        : 'Lendo';
+        (StatusLeitura.doValor(widget.manga['status_leitura'] as String?) ??
+                StatusLeitura.lendo)
+            .valor;
+    _tipo = widget.manga['tipo'] as String?;
   }
 
   @override
@@ -125,6 +112,7 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
             : _linkUrlController.text.trim(),
         'capa_path': _capaPath ?? widget.manga['capa_path'],
         'status_leitura': _statusSelecionado,
+        'tipo': _tipo,
       };
 
       await DbHelper().updateManga(widget.manga['id'], dadosAtualizados);
@@ -243,79 +231,19 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: PopupMenuButton<String>(
-                      initialValue: _statusSelecionado,
-                      color: colorScheme.surfaceContainer,
-                      constraints: const BoxConstraints(
-                        minWidth: 370,
-                        maxWidth: 400,
-                      ),
-                      onSelected: (String novoStatus) =>
-                          setState(() => _statusSelecionado = novoStatus),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 18,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _statusOptions.firstWhere(
-                                (e) => e['label'] == _statusSelecionado,
-                              )['icon'],
-                              color: _statusOptions.firstWhere(
-                                (e) => e['label'] == _statusSelecionado,
-                              )['color'],
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              _statusSelecionado,
-                              style: TextStyle(
-                                color: colorScheme.onSurface,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const Spacer(),
-                            Icon(
-                              Icons.arrow_drop_down,
-                              color: colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      itemBuilder: (BuildContext context) =>
-                          _statusOptions.map((status) {
-                            return PopupMenuItem<String>(
-                              value: status['label'],
-                              child: SizedBox(
-                                width: 300,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      status['icon'],
-                                      color: status['color'],
-                                      size: 20,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      status['label'],
-                                      style: TextStyle(
-                                        color: colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                    ),
+                  SeletorMenu<String?>(
+                    rotulo: 'Tipo',
+                    opcoes: opcoesDeTipo,
+                    selecionado: _tipo,
+                    aoSelecionar: (tipo) => setState(() => _tipo = tipo),
+                  ),
+                  const SizedBox(height: 12),
+                  SeletorMenu<String>(
+                    rotulo: 'Status',
+                    opcoes: opcoesDeStatus,
+                    selecionado: _statusSelecionado,
+                    aoSelecionar: (status) =>
+                        setState(() => _statusSelecionado = status),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../database/db_helper.dart';
 import '../utils/capa_helper.dart';
+import '../utils/classificacao.dart';
+import 'seletor_classificacao.dart';
 
 class AddMangaFormWidget extends StatefulWidget {
   final VoidCallback onMangaSaved;
@@ -22,32 +24,10 @@ class _AddMangaFormWidgetState extends State<AddMangaFormWidget> {
 
   String? _capaSelecionadaPath;
 
-  final List<Map<String, dynamic>> _statusOptions = [
-    {'label': 'Lendo', 'icon': Icons.menu_book_rounded, 'color': Colors.blue},
-    {
-      'label': 'Completo',
-      'icon': Icons.check_circle_rounded,
-      'color': Colors.green,
-    },
-    {
-      'label': 'Dropado',
-      'icon': Icons.cancel_rounded,
-      'color': Colors.redAccent,
-    },
-    {
-      'label': 'Planejo Ler',
-      'icon': Icons.watch_later_rounded,
-      'color': Colors.orange,
-    },
-  ];
+  String _status = StatusLeitura.lendo.valor;
 
-  late Map<String, dynamic> _selectedStatus;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedStatus = _statusOptions.first;
-  }
+  /// Chave do tipo; nulo é "sem tipo"
+  String? _tipo;
 
   @override
   void dispose() {
@@ -85,7 +65,8 @@ class _AddMangaFormWidgetState extends State<AddMangaFormWidget> {
         'link_url': _linkUrlController.text.trim().isEmpty
             ? null
             : _linkUrlController.text.trim(),
-        'status_leitura': _selectedStatus['label'],
+        'status_leitura': _status,
+        'tipo': _tipo,
         'capa_path': _capaSelecionadaPath ?? 'assets/capa_generica.png',
         'ordem_leitura': 1,
       };
@@ -97,7 +78,8 @@ class _AddMangaFormWidgetState extends State<AddMangaFormWidget> {
       _linkUrlController.clear();
       _capituloController.text = '1';
       setState(() {
-        _selectedStatus = _statusOptions.first;
+        _status = StatusLeitura.lendo.valor;
+        _tipo = null;
         _capaSelecionadaPath = null;
       });
 
@@ -210,68 +192,18 @@ class _AddMangaFormWidgetState extends State<AddMangaFormWidget> {
                 onPressed: _escolherEProcessarCapa,
               ),
               const SizedBox(height: 12),
-              Container(
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: PopupMenuButton<Map<String, dynamic>>(
-                  initialValue: _selectedStatus,
-                  color: colorScheme.surfaceContainer,
-                  constraints: const BoxConstraints(minWidth: 370),
-                  onSelected: (Map<String, dynamic> novoStatus) {
-                    setState(() => _selectedStatus = novoStatus);
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 18,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          _selectedStatus['icon'],
-                          color: _selectedStatus['color'],
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          _selectedStatus['label'],
-                          style: TextStyle(
-                            color: colorScheme.onSurface,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const Spacer(),
-                        Icon(
-                          Icons.arrow_drop_down,
-                          color: colorScheme.onSurface.withValues(alpha: 0.5),
-                        ),
-                      ],
-                    ),
-                  ),
-                  itemBuilder: (BuildContext context) {
-                    return _statusOptions.map((status) {
-                      return PopupMenuItem<Map<String, dynamic>>(
-                        value: status,
-                        child: Row(
-                          children: [
-                            Icon(
-                              status['icon'],
-                              color: status['color'],
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              status['label'],
-                              style: TextStyle(color: colorScheme.onSurface),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList();
-                  },
-                ),
+              SeletorMenu<String?>(
+                rotulo: 'Tipo',
+                opcoes: opcoesDeTipo,
+                selecionado: _tipo,
+                aoSelecionar: (tipo) => setState(() => _tipo = tipo),
+              ),
+              const SizedBox(height: 12),
+              SeletorMenu<String>(
+                rotulo: 'Status',
+                opcoes: opcoesDeStatus,
+                selecionado: _status,
+                aoSelecionar: (status) => setState(() => _status = status),
               ),
               const SizedBox(height: 20),
               ElevatedButton(

@@ -99,6 +99,42 @@ void main() {
     expect(lista.itens, [2, 3]);
   });
 
+  test('lote pedido antes de reiniciar é descartado', () {
+    final banco = _BancoFalso(100);
+    final lista = ListaPaginada<int>(tamanhoDoLote: 30);
+    lista.acrescentarLote(banco.pagina(30, lista.offset));
+
+    // Filtro trocado enquanto o segundo lote chegava
+    final geracaoAntiga = lista.geracao;
+    final aCaminho = banco.pagina(30, lista.offset);
+    lista.reiniciar();
+    expect(lista.acrescentarLote(aCaminho, geracao: geracaoAntiga), isFalse);
+    expect(lista.itens, isEmpty);
+    expect(lista.offset, 0);
+    expect(lista.temMais, isTrue);
+
+    // O lote da lista nova entra
+    final geracao = lista.geracao;
+    expect(
+      lista.acrescentarLote(banco.pagina(30, lista.offset), geracao: geracao),
+      isTrue,
+    );
+    expect(lista.itens, [for (var i = 1; i <= 30; i++) i]);
+  });
+
+  test('item que deixou de combinar com o filtro sai como uma exclusão', () {
+    // Banco com o filtro aplicado: o item 10 deixou de combinar
+    final filtrado = _BancoFalso(35);
+    final lista = ListaPaginada<int>(tamanhoDoLote: 30);
+    lista.acrescentarLote(filtrado.pagina(30, lista.offset));
+
+    filtrado.excluir(10);
+    lista.remover(lista.itens.indexOf(10));
+    carregarTudo(lista, filtrado);
+
+    expect(lista.itens, [for (var i = 1; i <= 35; i++) i]..remove(10));
+  });
+
   test('reiniciar volta ao começo', () {
     final lista = ListaPaginada<int>(tamanhoDoLote: 2)
       ..acrescentarLote([1])

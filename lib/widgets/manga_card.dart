@@ -5,6 +5,7 @@ import '../database/db_helper.dart';
 import '../screens/browser_screen.dart';
 import '../screens/linux_browser_screen.dart';
 import '../utils/capa_helper.dart';
+import '../utils/classificacao.dart';
 import 'atualizacao_leitura_dialog.dart';
 import 'edit_manga_form.dart';
 
@@ -25,6 +26,7 @@ class MangaCardWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tipo = TipoLeitura.daChave(manga['tipo'] as String?);
 
     return Card(
       color: theme.cardColor,
@@ -49,6 +51,14 @@ class MangaCardWidget extends StatelessWidget {
               children: [
                 _buildCapa(context),
                 Positioned(top: 8, left: 8, child: _buildStatusTag()),
+                // Embaixo, e não ao lado do status: num card estreito os dois
+                // juntos não cabem na largura
+                if (tipo != null)
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    child: _selo(tipo.nome.toUpperCase(), tipo.cor),
+                  ),
               ],
             ),
           ),
@@ -271,34 +281,23 @@ class MangaCardWidget extends StatelessWidget {
 
   Widget _buildStatusTag() {
     final String status = manga['status_leitura'] ?? 'Lendo';
-    Color bgColor;
+    final cor = (StatusLeitura.doValor(status) ?? StatusLeitura.lendo).cor;
+    return _selo(status.toUpperCase(), cor);
+  }
 
-    switch (status) {
-      case 'Completo':
-        bgColor = const Color(0xFF4CAF50);
-        break;
-      case 'Dropado':
-        bgColor = const Color(0xFFF44336);
-        break;
-      case 'Planejo Ler':
-        bgColor = const Color(0xFFFF9800);
-        break;
-      case 'Lendo':
-      default:
-        bgColor = const Color(0xFF2196F3);
-    }
-
+  /// Selo por cima da capa (status e tipo).
+  Widget _selo(String texto, Color cor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: cor,
         borderRadius: BorderRadius.circular(6),
         boxShadow: const [
           BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
         ],
       ),
       child: Text(
-        status.toUpperCase(),
+        texto,
         style: const TextStyle(
           color: Colors.white,
           fontSize: 10,

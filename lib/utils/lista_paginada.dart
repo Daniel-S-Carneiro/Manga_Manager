@@ -6,7 +6,11 @@
 /// [offset] não descer junto, o próximo lote começa um item adiante e esse
 /// item nunca aparece (o "carregar mais" pulava um mangá depois de cada
 /// exclusão). Por isso a remoção passa por [remover], e o desfazer por
-/// [desfazerRemocao].
+/// [desfazerRemocao]. O mesmo vale para o item que deixa de combinar com a
+/// busca ou o filtro depois de editado.
+///
+/// Um lote pedido antes de um [reiniciar] (busca ou filtro trocados enquanto
+/// ele chegava) é de outra lista e é descartado: veja [geracao].
 class ListaPaginada<T> {
   ListaPaginada({required this.tamanhoDoLote});
 
@@ -19,18 +23,29 @@ class ListaPaginada<T> {
   /// Ainda há itens no banco depois dos carregados.
   bool temMais = true;
 
-  /// Volta ao começo (nova busca, mangá novo, restauração).
+  /// Muda a cada [reiniciar]. Guarde o valor ao pedir um lote e passe para
+  /// [acrescentarLote].
+  int get geracao => _geracao;
+  int _geracao = 0;
+
+  /// Volta ao começo (nova busca ou filtro, mangá novo, restauração).
   void reiniciar() {
     itens.clear();
     offset = 0;
     temMais = true;
+    _geracao++;
   }
 
   /// Acrescenta o lote que veio do banco a partir do [offset].
-  void acrescentarLote(List<T> lote) {
+  ///
+  /// Com a [geracao] de quando o lote foi pedido, um lote de antes do último
+  /// [reiniciar] não entra e a lista não muda. Devolve se o lote entrou.
+  bool acrescentarLote(List<T> lote, {int? geracao}) {
+    if (geracao != null && geracao != _geracao) return false;
     itens.addAll(lote);
     offset += lote.length;
     if (lote.length < tamanhoDoLote) temMais = false;
+    return true;
   }
 
   /// Tira o item em [indice], que vai ser excluído do banco.

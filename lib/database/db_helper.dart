@@ -4,6 +4,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io' as io;
 
+import '../utils/classificacao.dart';
+
 class DbHelper {
   static final DbHelper _instance = DbHelper._internal();
   factory DbHelper() => _instance;
@@ -118,11 +120,32 @@ class DbHelper {
     return _database!;
   }
 
+  /// Versão do schema. Subir exige um passo em [_onUpgrade]: os usuários
+  /// instalados já têm bancos das versões anteriores.
+  ///
+  /// - 2: tabela `configuracoes`.
+  /// - 3: coluna `tipo` em `mangas` (nula = sem tipo).
+  static const int versaoDoBanco = 3;
+
+  /// Colunas de `mangas` além do `id`. A mescla do backup copia só estas:
+  /// um backup de uma versão mais nova pode ter outras, e o `insert`
+  /// falharia com elas.
+  static const List<String> colunasDosMangas = [
+    'nome_pt',
+    'nome_en',
+    'capitulo',
+    'link_url',
+    'capa_path',
+    'status_leitura',
+    'ordem_leitura',
+    'tipo',
+  ];
+
   Future<Database> _initDatabase() async {
     final path = await getDatabasePathString();
     return await openDatabase(
       path,
-      version: 2,
+      version: versaoDoBanco,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -171,7 +194,10 @@ class DbHelper {
       );
 
       if (existe.isEmpty) {
-        var novoManga = Map<String, dynamic>.from(manga)..remove('id');
+        final novoManga = <String, dynamic>{
+          for (final coluna in colunasDosMangas)
+            if (manga.containsKey(coluna)) coluna: manga[coluna],
+        };
 
         final capaPath = manga['capa_path'] as String?;
         final arquivoCapa = capaPath == null || capaPath.isEmpty
@@ -206,9 +232,13 @@ class DbHelper {
         link_url TEXT,
         capa_path TEXT,
         status_leitura TEXT NOT NULL,
-        ordem_leitura INTEGER NOT NULL
+        ordem_leitura INTEGER NOT NULL,
+        tipo TEXT
       )
     ''');
+    // O sqflite também chama o onCreate para um banco com versão 0 que já
+    // tem a tabela (o CREATE acima não muda nada nela)
+    await _garantirColunaTipo(db);
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS configuracoes (
@@ -235,6 +265,19 @@ class DbHelper {
         INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES ('tema', 'dark')
       ''');
     }
+    if (oldVersion < 3) {
+      await _garantirColunaTipo(db);
+    }
+  }
+
+  /// Cria a coluna `tipo` se ela ainda não existir. Precisa conferir antes: um
+  /// app antigo que abre um banco novo (backup restaurado num aparelho ainda
+  /// não atualizado) só baixa o número da versão e mantém a coluna, e na
+  /// próxima atualização o `ALTER TABLE` daria erro de coluna repetida.
+  static Future<void> _garantirColunaTipo(DatabaseExecutor db) async {
+    final colunas = await db.rawQuery('PRAGMA table_info(mangas)');
+    if (colunas.any((c) => c['name'] == 'tipo')) return;
+    await db.execute('ALTER TABLE mangas ADD COLUMN tipo TEXT');
   }
 
   Future<String> getTema() async {
@@ -292,30 +335,44 @@ class DbHelper {
     return await db.insert('mangas', row);
   }
 
+  /// Um lote da lista principal, na ordem de leitura, com a busca e os
+  /// filtros de [filtro].
   Future<List<Map<String, dynamic>>> getMangas({
     int limit = 50,
     int offset = 0,
-    String query = '',
+    FiltroLista filtro = const FiltroLista(),
   }) async {
     final db = await database;
-
-    String? whereClause;
-    List<dynamic>? whereArgs;
-
-    if (query.trim().isNotEmpty) {
-      final searchPattern = '%${query.trim()}%';
-      whereClause = 'nome_pt LIKE ? OR nome_en LIKE ?';
-      whereArgs = [searchPattern, searchPattern];
-    }
+    final clausula = filtro.clausula();
 
     return await db.query(
       'mangas',
-      where: whereClause,
-      whereArgs: whereArgs,
-      orderBy: 'ordem_leitura ASC',
+      where: clausula.where,
+      whereArgs: clausula.where == null ? null : clausula.args,
+      // O id desempata: com ordem_leitura repetida (a mescla do backup traz a
+      // do outro aparelho), o OFFSET poderia repetir ou pular um item
+      orderBy: 'ordem_leitura ASC, id ASC',
       limit: limit,
       offset: offset,
     );
+  }
+
+  /// O item [id] se ele ainda aparece na lista com [filtro]. Nulo se saiu do
+  /// banco ou deixou de combinar com a busca ou o filtro (depois de editado),
+  /// e aí precisa sair da lista carregada (ver ListaPaginada.remover).
+  Future<Map<String, dynamic>?> getMangaNoFiltro(
+    int id,
+    FiltroLista filtro,
+  ) async {
+    final db = await database;
+    final clausula = filtro.clausula();
+    final linhas = await db.query(
+      'mangas',
+      where: clausula.where == null ? 'id = ?' : 'id = ? AND ${clausula.where}',
+      whereArgs: [id, ...clausula.args],
+      limit: 1,
+    );
+    return linhas.isEmpty ? null : linhas.first;
   }
 
   Future<void> reordenarMangas(List<Map<String, dynamic>> listaOrdenada) async {

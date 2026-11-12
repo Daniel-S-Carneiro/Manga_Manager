@@ -31,7 +31,8 @@ As regras completas estão em [docs/diretrizes-projeto.md](docs/diretrizes-proje
 ### Biblioteca
 
 - Cadastre mangás com título em português e em inglês, capítulo atual, link de leitura, capa e status (**Lendo**, **Completo**, **Dropado**, **Planejo Ler**).
-- Busque pelo título e reorganize a lista arrastando os cards.
+- Marque o tipo de cada leitura: **Mangá**, **Manhwa**, **Manhua**, **Webtoon**, **Novel** ou **Outro**. O tipo aparece num selo na capa.
+- Busque pelo título, filtre por tipo e por status e reorganize a lista arrastando os cards.
 - As capas ficam salvas no próprio dispositivo (no Linux e no Android são convertidas para WebP).
 
 ### Leitor embutido
@@ -101,8 +102,8 @@ lib/
 ├── database/          # DbHelper (SQLite)
 ├── screens/           # leitor: base comum (LeitorBase), BrowserScreen (Windows/Android) e LinuxBrowserScreen (CEF)
 ├── services/          # backup e atualização automática
-├── utils/             # adblock e filtro de navegação, tema, tar.gz, seletor de arquivos
-└── widgets/           # cards, formulários, diálogos e barra de controle do leitor
+├── utils/             # adblock e filtro de navegação, tipos e status, tema, tar.gz, seletor de arquivos
+└── widgets/           # cards, formulários, filtros, diálogos e barra de controle do leitor
 test/                  # testes de lógica e de diálogos
 build_installer.cmd    # gera os pacotes de Windows, Android e Linux
 build_linux.sh         # compila o Linux no WSL a partir do commit atual
