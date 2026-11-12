@@ -110,3 +110,19 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Licenças do CEF e do Chromium: o webview_cef põe o libcef.dll no pacote (até
+# no Windows, que não usa o CEF), e a licença dele pede os avisos junto da
+# distribuição. Vão para "licencas", ao lado do executável; o instalador copia
+# tudo do build e o desinstalador apaga a pasta.
+set(CEF_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/.plugin_symlinks/webview_cef/third/cef")
+if(EXISTS "${CEF_DIST_DIR}/LICENSE.txt")
+  install(FILES "${CEF_DIST_DIR}/LICENSE.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/licencas"
+    RENAME "CEF_LICENSE.txt" COMPONENT Runtime)
+endif()
+if(EXISTS "${CEF_DIST_DIR}/CREDITS.html")
+  install(FILES "${CEF_DIST_DIR}/CREDITS.html"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/licencas"
+    RENAME "CHROMIUM_CREDITS.html" COMPONENT Runtime)
+endif()

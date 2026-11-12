@@ -14,6 +14,7 @@ import 'widgets/top_bar.dart';
 import 'widgets/manga_form.dart';
 import 'widgets/manga_card.dart';
 import 'utils/error_handler.dart';
+import 'utils/licencas.dart';
 import 'utils/theme_notifier.dart';
 import 'services/update_service.dart';
 import 'controllers/refresh_controller.dart';
@@ -116,6 +117,8 @@ void main() async {
       WidgetsFlutterBinding.ensureInitialized();
 
       HardwareKeyboard.instance.addHandler(_atualizarEstadoCtrl);
+      // Licença do CEF na tela de licenças (o NOTICES não traz)
+      registrarLicencasExtras();
 
       await setupDatabaseFactory();
       await ThemeController.initTheme();

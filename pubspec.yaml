@@ -114,6 +114,8 @@ flutter:
     - assets/icon/app_icon_256.png
     - assets/images/
     - assets/splash/
+    # Licenças que o Flutter não junta no NOTICES (ver lib/utils/licencas.dart)
+    - assets/licencas/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

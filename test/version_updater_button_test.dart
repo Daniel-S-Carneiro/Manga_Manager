@@ -37,8 +37,30 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Informações de Versão'), findsOneWidget);
+      expect(find.text('Licenças'), findsOneWidget);
       // Um RenderFlex que estoura a largura vira exceção no teste
       expect(tester.takeException(), isNull);
     });
   }
+
+  // As diretrizes pedem as licenças de terceiros acessíveis no app
+  testWidgets('botão Licenças abre a tela de licenças do app', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: VersionUpdaterButton())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(VersionUpdaterButton));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Licenças'));
+    // A tela carrega as licenças aos poucos (indicador girando): sem
+    // pumpAndSettle
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(LicensePage), findsOneWidget);
+    expect(find.text('Manga Manager'), findsWidgets);
+  });
 }

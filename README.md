@@ -124,3 +124,5 @@ Este é um projeto pessoal, feito para organizar e acompanhar a leitura de mang�
 ## Licença
 
 Distribuído sob a licença MIT. Veja o arquivo [LICENSE](LICENSE).
+
+As licenças dos componentes de terceiros ficam no próprio app (janela de versão → **Licenças**). Os pacotes de Windows e Linux trazem também a pasta `licencas/`, com a licença do Chromium Embedded Framework e os créditos do Chromium, que vão dentro do leitor.

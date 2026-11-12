@@ -126,3 +126,18 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Licenças do CEF e do Chromium: o webview_cef põe o libcef.so no pacote, e a
+# licença dele pede os avisos junto da distribuição. Vão para "licencas",
+# dentro do bundle (entra no .tar.gz).
+set(CEF_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/.plugin_symlinks/webview_cef/third/cef")
+if(EXISTS "${CEF_DIST_DIR}/LICENSE.txt")
+  install(FILES "${CEF_DIST_DIR}/LICENSE.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/licencas"
+    RENAME "CEF_LICENSE.txt" COMPONENT Runtime)
+endif()
+if(EXISTS "${CEF_DIST_DIR}/CREDITS.html")
+  install(FILES "${CEF_DIST_DIR}/CREDITS.html"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/licencas"
+    RENAME "CHROMIUM_CREDITS.html" COMPONENT Runtime)
+endif()

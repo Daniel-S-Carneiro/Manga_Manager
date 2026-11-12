@@ -189,6 +189,24 @@ class _VersionUpdaterButtonState extends State<VersionUpdaterButton> {
             ),
           ),
           actions: [
+            // Licenças dos componentes de terceiros (NOTICES do Flutter e o
+            // CEF, ver lib/utils/licencas.dart)
+            TextButton(
+              onPressed: () => showLicensePage(
+                context: dialogContext,
+                applicationName: 'Manga Manager',
+                applicationVersion: 'v$_installedVersion',
+                applicationIcon: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Image.asset('assets/images/logo.png', width: 64),
+                ),
+                applicationLegalese:
+                    'Gerenciador de leitura de código aberto, sob a licença '
+                    'MIT. Abaixo, as licenças dos componentes de terceiros '
+                    'usados no app.',
+              ),
+              child: const Text('Licenças'),
+            ),
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Fechar'),

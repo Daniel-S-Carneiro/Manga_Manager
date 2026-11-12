@@ -285,6 +285,7 @@ Section "Uninstall"
     Delete "$INSTDIR\*.json"
     RMDir /r "$INSTDIR\data"
     RMDir /r "$INSTDIR\locales"
+    RMDir /r "$INSTDIR\licencas"
     RMDir /r "$INSTDIR\${EXE_NAME}.WebView2"
     RMDir "$INSTDIR"
 
