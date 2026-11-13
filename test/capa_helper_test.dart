@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/capa_helper.dart';
+import 'package:onde_parei/utils/capa_helper.dart';
 
 void main() {
   group('tamanhoDecodificado', () {

@@ -23,6 +23,10 @@ echo Commit: !GIT_COMMIT:~0,7! - branch !GIT_BRANCH!
 
 echo.
 echo [1/5] Iniciando build do Flutter (Windows)...
+:: O instalador empacota a pasta Release inteira (File /r), e o build do
+:: Windows não a limpa: um .exe de um build antigo (ex.: o manga_manager.exe
+:: de antes do nome novo) entraria no instalador
+if exist "build\windows\x64\runner\Release" rmdir /s /q "build\windows\x64\runner\Release"
 call flutter.bat build windows --release
 if not exist "build\windows\x64\runner\Release" goto :error_win
 
@@ -62,8 +66,8 @@ echo [5/5] Organizando arquivos na pasta 'dist'...
 if not exist "dist" mkdir dist
 
 :: Mover Instalador Windows com tratamento de erro
-if exist "MangaManager_Setup.exe" (
-    move /Y "MangaManager_Setup.exe" "dist\" >nul
+if exist "OndeParei_Setup.exe" (
+    move /Y "OndeParei_Setup.exe" "dist\" >nul
     if %ERRORLEVEL% NEQ 0 (
         echo ERRO: Falha ao mover o instalador Windows para a pasta dist.
         goto :error_dist
@@ -72,7 +76,7 @@ if exist "MangaManager_Setup.exe" (
 
 :: Mover APK Android com tratamento de erro
 if exist "build\app\outputs\flutter-apk\app-release.apk" (
-    move /Y "build\app\outputs\flutter-apk\app-release.apk" "dist\MangaManager.apk" >nul
+    move /Y "build\app\outputs\flutter-apk\app-release.apk" "dist\OndeParei.apk" >nul
     if %ERRORLEVEL% NEQ 0 (
         echo ERRO: Falha ao mover o APK para a pasta dist.
         goto :error_dist
@@ -85,9 +89,9 @@ echo Processo concluido com sucesso!
 echo Arquivos disponiveis na pasta: dist\
 echo - Versao:  !APP_VERSION!
 echo - Commit:  !GIT_COMMIT:~0,7!
-echo - Windows: MangaManager_Setup.exe
-echo - Android: MangaManager.apk
-echo - Linux:   MangaManager_Linux_x64.tar.gz
+echo - Windows: OndeParei_Setup.exe
+echo - Android: OndeParei.apk
+echo - Linux:   OndeParei_Linux_x64.tar.gz
 echo ==================================================
 goto :success
 

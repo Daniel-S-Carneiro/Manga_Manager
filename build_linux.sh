@@ -18,9 +18,10 @@ COMMIT="$1"
 BRANCH="$2"
 DESTINO="$3"
 
+# A pasta do clone ainda tem o nome antigo do app (manga_manager)
 CLONE="$HOME/StudioProjects/manga_manager"
 FLUTTER="$HOME/flutter/bin/flutter"
-PACOTE="MangaManager_Linux_x64.tar.gz"
+PACOTE="OndeParei_Linux_x64.tar.gz"
 # Pasta deste script = repositório do Windows (/mnt/c/...)
 WIN_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

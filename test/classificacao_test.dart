@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/classificacao.dart';
+import 'package:onde_parei/utils/classificacao.dart';
 
 void main() {
   group('TipoLeitura', () {

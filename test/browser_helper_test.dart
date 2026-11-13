@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/browser_helper.dart';
-import 'package:manga_manager/utils/config_rolagem.dart';
+import 'package:onde_parei/utils/browser_helper.dart';
+import 'package:onde_parei/utils/config_rolagem.dart';
 
 /// Node no PATH, para conferir a sintaxe do JS gerado.
 final bool _temNode = () {

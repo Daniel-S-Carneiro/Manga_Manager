@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/config_rolagem.dart';
-import 'package:manga_manager/widgets/floating_control_bar.dart';
-import 'package:manga_manager/widgets/painel_rolagem.dart';
+import 'package:onde_parei/utils/config_rolagem.dart';
+import 'package:onde_parei/widgets/floating_control_bar.dart';
+import 'package:onde_parei/widgets/painel_rolagem.dart';
 
 void main() {
   group('PainelRolagem', () {

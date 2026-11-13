@@ -21,7 +21,7 @@ class _VersionUpdaterButtonState extends State<VersionUpdaterButton> {
   String? _downloadUrl;
 
   static const String _gitApiUrl =
-      'https://api.github.com/repos/Daniel-S-Carneiro/Manga_Manager/releases/latest';
+      'https://api.github.com/repos/Daniel-S-Carneiro/Onde-Parei/releases/latest';
 
   @override
   void initState() {
@@ -194,7 +194,7 @@ class _VersionUpdaterButtonState extends State<VersionUpdaterButton> {
             TextButton(
               onPressed: () => showLicensePage(
                 context: dialogContext,
-                applicationName: 'Manga Manager',
+                applicationName: 'Onde Parei',
                 applicationVersion: 'v$_installedVersion',
                 applicationIcon: Padding(
                   padding: const EdgeInsets.all(8),

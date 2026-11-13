@@ -7,7 +7,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/file_picker_helper.dart';
+import 'package:onde_parei/utils/file_picker_helper.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -71,12 +71,14 @@ void main() {
   tearDown(() => raiz.deleteSync(recursive: true));
 
   _Escolhido soUri() => _Escolhido(
-    Uri.parse('content://com.android.providers/documento/manga_backup.tar.gz'),
+    Uri.parse(
+      'content://com.android.providers/documento/onde_parei_backup.tar.gz',
+    ),
     [1, 2, 3],
   );
 
   test('arquivo do disco: usa o original e nunca o apaga', () async {
-    final original = File(p.join(raiz.path, 'manga_backup.tar.gz'))
+    final original = File(p.join(raiz.path, 'onde_parei_backup.tar.gz'))
       ..writeAsBytesSync([4, 5, 6]);
 
     final usado = await usarArquivoEscolhido(

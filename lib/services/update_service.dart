@@ -18,7 +18,7 @@ class UpdateService {
   static const String kVersaoApp = 'versao_app';
 
   static const String _repoOwner = 'Daniel-S-Carneiro';
-  static const String _repoName = 'Manga_Manager';
+  static const String _repoName = 'Onde-Parei';
 
   static String get gitApiUrl =>
       'https://api.github.com/repos/$_repoOwner/$_repoName/releases/latest';
@@ -85,7 +85,7 @@ class UpdateService {
       if (anterior != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Manga Manager atualizado para a v$versaoAtual.'),
+            content: Text('Onde Parei atualizado para a v$versaoAtual.'),
           ),
         );
       }

@@ -314,7 +314,7 @@ class MangaCardWidget extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Erro: O link deste mangá está vazio.'),
+            content: Text('Erro: o link desta leitura está vazio.'),
             backgroundColor: Colors.orange,
           ),
         );

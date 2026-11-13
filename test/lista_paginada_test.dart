@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/lista_paginada.dart';
+import 'package:onde_parei/utils/lista_paginada.dart';
 
 /// Banco falso com a regra do `LIMIT`/`OFFSET` do `DbHelper.getMangas`: a
 /// página sai das linhas que existem na hora da consulta, em ordem.

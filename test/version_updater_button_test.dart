@@ -4,14 +4,14 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/widgets/version_updater_button.dart';
+import 'package:onde_parei/widgets/version_updater_button.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {
   setUp(() {
     PackageInfo.setMockInitialValues(
-      appName: 'manga_manager',
-      packageName: 'com.example.manga_manager',
+      appName: 'onde_parei',
+      packageName: 'io.github.danielscarneiro.ondeparei',
       version: '2.1.0',
       buildNumber: '2',
       buildSignature: '',
@@ -61,6 +61,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byType(LicensePage), findsOneWidget);
-    expect(find.text('Manga Manager'), findsWidgets);
+    expect(find.text('Onde Parei'), findsWidgets);
   });
 }

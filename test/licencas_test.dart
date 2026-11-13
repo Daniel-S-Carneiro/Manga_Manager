@@ -2,7 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/licencas.dart';
+import 'package:onde_parei/utils/licencas.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

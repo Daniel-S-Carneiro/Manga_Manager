@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/classificacao.dart';
-import 'package:manga_manager/widgets/barra_filtros.dart';
-import 'package:manga_manager/widgets/manga_card.dart';
-import 'package:manga_manager/widgets/seletor_classificacao.dart';
+import 'package:onde_parei/utils/classificacao.dart';
+import 'package:onde_parei/widgets/barra_filtros.dart';
+import 'package:onde_parei/widgets/manga_card.dart';
+import 'package:onde_parei/widgets/seletor_classificacao.dart';
 
 Widget _app(Widget filho, {double largura = 400}) => MaterialApp(
   home: Scaffold(

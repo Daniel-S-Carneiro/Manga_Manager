@@ -108,7 +108,7 @@ class _AddMangaFormWidgetState extends State<AddMangaFormWidget> {
             children: [
               Center(
                 child: Text(
-                  'Adicionar Novo Mangá',
+                  'Adicionar Nova Leitura',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -213,7 +213,7 @@ class _AddMangaFormWidgetState extends State<AddMangaFormWidget> {
                 ),
                 onPressed: _salvarManga,
                 child: Text(
-                  'Salvar Mangá',
+                  'Salvar Leitura',
                   style: TextStyle(
                     color: colorScheme.onPrimary,
                     fontWeight: FontWeight.bold,

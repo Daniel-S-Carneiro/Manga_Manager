@@ -4,10 +4,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/screens/leitor_base.dart';
-import 'package:manga_manager/utils/browser_helper.dart';
-import 'package:manga_manager/utils/config_rolagem.dart';
-import 'package:manga_manager/widgets/painel_rolagem.dart';
+import 'package:onde_parei/screens/leitor_base.dart';
+import 'package:onde_parei/utils/browser_helper.dart';
+import 'package:onde_parei/utils/config_rolagem.dart';
+import 'package:onde_parei/widgets/painel_rolagem.dart';
 
 /// Tela mínima com a base comum dos leitores, sem motor de navegador.
 class _LeitorFalso extends StatefulWidget {

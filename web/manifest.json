@@ -1,11 +1,11 @@
 {
-    "name": "manga_manager",
-    "short_name": "manga_manager",
+    "name": "Onde Parei",
+    "short_name": "Onde Parei",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Gerenciador de leitura para mangá, manhwa, manhua, webtoon e novel.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

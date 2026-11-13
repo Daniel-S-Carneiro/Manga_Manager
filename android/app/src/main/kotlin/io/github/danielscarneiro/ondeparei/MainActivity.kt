@@ -1,4 +1,4 @@
-package com.example.manga_manager
+package io.github.danielscarneiro.ondeparei
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:manga_manager/widgets/meu_db_viewer.dart';
+import 'package:onde_parei/widgets/meu_db_viewer.dart';
 
 class TopBar extends StatelessWidget {
   final bool showForm;
@@ -65,7 +65,7 @@ class TopBar extends StatelessWidget {
                         size: 18,
                       ),
                       label: Text(
-                        showForm ? 'Fechar' : 'Novo Mangá',
+                        showForm ? 'Fechar' : 'Nova Leitura',
                         maxLines: 1,
                         softWrap: false,
                         style: const TextStyle(
@@ -143,7 +143,7 @@ class TopBar extends StatelessWidget {
                   size: 18,
                 ),
                 label: Text(
-                  showForm ? 'Fechar' : 'Novo Mangá',
+                  showForm ? 'Fechar' : 'Nova Leitura',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 13,

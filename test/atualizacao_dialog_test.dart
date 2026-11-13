@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:manga_manager/widgets/atualizacao_dialog.dart';
+import 'package:onde_parei/widgets/atualizacao_dialog.dart';
 
 /// Um "instalador" de mentira: começa com MZ, como todo .exe.
 List<int> instaladorFalso(int tamanho) => [
@@ -36,7 +36,7 @@ void main() {
   });
 
   File arquivoBaixado() =>
-      File('${pasta.path}${Platform.pathSeparator}manga_manager_update.exe');
+      File('${pasta.path}${Platform.pathSeparator}onde_parei_update.exe');
 
   /// Desenha a tela, avançando o relógio do teste, até a condição valer. O
   /// arquivo é gravado de forma síncrona, então nada depende de tempo real.
@@ -62,7 +62,7 @@ void main() {
               builder: (_) => AtualizacaoDialog(
                 versaoAtual: '2.1.0',
                 novaVersao: '2.1.1',
-                urlDownload: 'https://exemplo.com/MangaManager_Setup.exe',
+                urlDownload: 'https://exemplo.com/OndeParei_Setup.exe',
                 cliente: cliente,
                 pastaTemporaria: () async => pasta,
                 iniciarElevado: (exe, args) async {

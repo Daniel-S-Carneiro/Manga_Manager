@@ -165,7 +165,7 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Editar Mangá',
+                    'Editar Leitura',
                     style: TextStyle(
                       color: colorScheme.onSurface,
                       fontSize: 18,
@@ -283,7 +283,7 @@ class _EditMangaFormWidgetState extends State<EditMangaFormWidget> {
                     onPressed: _excluirManga,
                     icon: Icon(Icons.delete_forever, color: colorScheme.error),
                     label: Text(
-                      'Excluir Mangá',
+                      'Excluir Leitura',
                       style: TextStyle(color: colorScheme.error),
                     ),
                   ),

@@ -6,7 +6,7 @@
 
 ## Posicionamento
 
-O Manga Manager é um **gerenciador de leitura e um tradutor**, não um repositório de mangás.
+O Onde Parei (antes Manga Manager) é um **gerenciador de leitura e um tradutor**, não um repositório de mangás.
 
 - Funciona como um navegador com favoritos: **o usuário traz as próprias URLs**, de sites oficiais ou não.
 - O app não hospeda, não distribui, não indica e não vem com fontes de conteúdo prontas.

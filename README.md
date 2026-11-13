@@ -1,25 +1,35 @@
 <p align="center">
-  <img src="assets/images/logo.png" alt="Manga Manager" width="140">
+  <img src="assets/images/logo.png" alt="Onde Parei" width="140">
 </p>
 
-<h1 align="center">Manga Manager</h1>
+<h1 align="center">Onde Parei – Where I Left Off</h1>
 
 <p align="center">
-  Biblioteca pessoal de mangás com leitor embutido para Windows, Linux e Android, feita em Flutter.
+  Biblioteca pessoal de leitura (mangá, manhwa, manhua, webtoon e novel) que guarda em que capítulo você parou, com leitor embutido para Windows, Linux e Android. Feita em Flutter.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Daniel-S-Carneiro/Manga_Manager/releases/latest"><img src="https://img.shields.io/github/v/release/Daniel-S-Carneiro/Manga_Manager?label=vers%C3%A3o" alt="Última versão"></a>
+  <a href="https://github.com/Daniel-S-Carneiro/Onde-Parei/releases/latest"><img src="https://img.shields.io/github/v/release/Daniel-S-Carneiro/Onde-Parei?label=vers%C3%A3o" alt="Última versão"></a>
   <img src="https://img.shields.io/badge/Flutter-3.47-02569B?logo=flutter" alt="Flutter 3.47">
   <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20Linux%20%7C%20Android-informational" alt="Plataformas: Windows, Linux e Android">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-green" alt="Licença MIT"></a>
 </p>
 
+<p align="center">
+  <em>A personal reading tracker for manga, manhwa, manhua, webtoons and novels. It remembers the chapter where you left off and opens your own links in a built-in reader with ad blocking. The app is in Portuguese (Brazil).</em>
+</p>
+
 ---
+
+> **Vindo do Manga Manager?** O app mudou de nome e agora é um app novo, que fica instalado ao lado do antigo. Para levar a biblioteca:
+> - **No mesmo computador (Windows ou Linux):** feche o Manga Manager e, no Onde Parei, use **Importar do Manga Manager** (aparece na lista vazia e em Backup / Restaurar).
+> - **No celular ou em outro aparelho:** no Manga Manager, faça um backup; no Onde Parei, restaure esse backup.
+>
+> O Manga Manager não é alterado. Depois de conferir a lista, você pode desinstalá-lo. Os logins dos sites no leitor não vêm junto.
 
 ## O que é (e o que não é)
 
-O Manga Manager é um **gerenciador de leitura**. Funciona como um navegador com favoritos: você cadastra os mangás que lê com **os seus próprios links**, e o app guarda em que capítulo você parou e abre a página no navegador embutido.
+O Onde Parei é um **gerenciador de leitura**. Funciona como um navegador com favoritos: você cadastra o que lê (mangá, manhwa, manhua, webtoon, novel) com **os seus próprios links**, e o app guarda em que capítulo você parou e abre a página no navegador embutido.
 
 - O app não hospeda, não distribui e não indica conteúdo, nem vem com sites prontos.
 - O bloqueio de anúncios e de pop-ups funciona como o de navegadores como Brave e Firefox: muda só o que aparece na tela, sem liberar nada que o site não entregou.
@@ -30,15 +40,15 @@ As regras completas estão em [docs/diretrizes-projeto.md](docs/diretrizes-proje
 
 ### Biblioteca
 
-- Cadastre mangás com título em português e em inglês, capítulo atual, link de leitura, capa e status (**Lendo**, **Completo**, **Dropado**, **Planejo Ler**).
+- Cadastre cada leitura com título em português e em inglês, capítulo atual, link de leitura, capa e status (**Lendo**, **Completo**, **Dropado**, **Planejo Ler**).
 - Marque o tipo de cada leitura: **Mangá**, **Manhwa**, **Manhua**, **Webtoon**, **Novel** ou **Outro**. O tipo aparece num selo na capa.
 - Busque pelo título, filtre por tipo e por status e reorganize a lista arrastando os cards.
 - As capas ficam salvas no próprio dispositivo (no Linux e no Android são convertidas para WebP).
 
 ### Leitor embutido
 
-- Abre o link do mangá dentro do app: WebView2 no Windows, Chromium (CEF) no Linux e WebView no Android.
-- Bloqueia anúncios, pop-ups e redirecionamentos, e mantém a navegação dentro do site do mangá.
+- Abre o link da leitura dentro do app: WebView2 no Windows, Chromium (CEF) no Linux e WebView no Android.
+- Bloqueia anúncios, pop-ups e redirecionamentos, e mantém a navegação dentro do site aberto.
 - Esconde avisos que cobrem a página sozinhos; um botão na barra do leitor desliga isso no site aberto.
 - Barra de controle flutuante (voltar, recarregar e tela cheia), na horizontal ou na vertical, que pode ser arrastada e lembra a posição.
 - Rolagem do mouse suave no computador, com distância por giro e suavidade ajustáveis pelo botão de mouse da barra.
@@ -55,15 +65,15 @@ As regras completas estão em [docs/diretrizes-projeto.md](docs/diretrizes-proje
 
 ## Instalação
 
-Baixe o arquivo da sua plataforma na **[última release](https://github.com/Daniel-S-Carneiro/Manga_Manager/releases/latest)**:
+Baixe o arquivo da sua plataforma na **[última release](https://github.com/Daniel-S-Carneiro/Onde-Parei/releases/latest)**:
 
 | Plataforma | Arquivo | Como instalar |
 | --- | --- | --- |
-| Windows 10/11 (64 bits) | `MangaManager_Setup.exe` | Execute o instalador (pede permissão de administrador). O leitor usa o Microsoft Edge WebView2 Runtime, que já vem no Windows 11 e no Windows 10 atualizado. |
-| Linux x64 | `MangaManager_Linux_x64.tar.gz` | Extraia e execute `bundle/manga_manager`. Instale o `xclip` para poder colar texto no leitor: `sudo apt install xclip`. |
-| Android 7.0+ | `MangaManager.apk` | Permita a instalação de apps de fontes desconhecidas e abra o APK. |
+| Windows 10/11 (64 bits) | `OndeParei_Setup.exe` | Execute o instalador (pede permissão de administrador). O leitor usa o Microsoft Edge WebView2 Runtime, que já vem no Windows 11 e no Windows 10 atualizado. |
+| Linux x64 | `OndeParei_Linux_x64.tar.gz` | Extraia e execute `bundle/onde_parei`. Instale o `xclip` para poder colar texto no leitor: `sudo apt install xclip`. |
+| Android 7.0+ | `OndeParei.apk` | Permita a instalação de apps de fontes desconhecidas e abra o APK. |
 
-**Onde ficam os dados no Windows:** o banco fica em `%APPDATA%\com.example\manga_manager\` e as capas em `Documentos\manga_manager_capas\`. Ao desinstalar, o instalador pergunta se você quer apagá-los.
+**Onde ficam os dados no Windows:** o banco fica em `%APPDATA%\io.github.danielscarneiro\OndeParei\` e as capas em `Documentos\onde_parei_capas\`. Ao desinstalar, o instalador pergunta se você quer apagá-los.
 
 ## Desenvolvimento
 
@@ -76,8 +86,8 @@ Baixe o arquivo da sua plataforma na **[última release](https://github.com/Dani
 ### Executar e testar
 
 ```bash
-git clone https://github.com/Daniel-S-Carneiro/Manga_Manager.git
-cd Manga_Manager
+git clone https://github.com/Daniel-S-Carneiro/Onde-Parei.git
+cd Onde-Parei
 flutter pub get
 flutter run -d windows
 ```
@@ -120,7 +130,7 @@ installer.nsi          # instalador do Windows (NSIS)
 
 ## Contribuição
 
-Este é um projeto pessoal, feito para organizar e acompanhar a leitura de mangás. Sugestões e relatos de problemas são bem-vindos nas [issues](https://github.com/Daniel-S-Carneiro/Manga_Manager/issues).
+Este é um projeto pessoal, feito para organizar e acompanhar leituras em capítulos. Sugestões e relatos de problemas são bem-vindos nas [issues](https://github.com/Daniel-S-Carneiro/Onde-Parei/issues).
 
 ## Licença
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/widgets/atualizacao_leitura_dialog.dart';
+import 'package:onde_parei/widgets/atualizacao_leitura_dialog.dart';
 
 void main() {
   group('MudancasLeitura.calcular', () {

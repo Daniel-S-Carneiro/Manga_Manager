@@ -5,8 +5,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../services/backup_service.dart';
+import '../services/importacao_manga_manager.dart';
 import '../controllers/refresh_controller.dart';
 import '../utils/file_picker_helper.dart';
+import 'importar_manga_manager.dart';
 
 class BackupManagerButton extends StatefulWidget {
   final VoidCallback onBackupRestored;
@@ -20,6 +22,29 @@ class BackupManagerButton extends StatefulWidget {
 class _BackupManagerButtonState extends State<BackupManagerButton> {
   bool _isLoading = false;
   final BackupService _backupService = BackupService();
+
+  /// Banco do Manga Manager neste computador (só no Windows e no Linux)
+  File? _bancoDoMangaManager;
+
+  @override
+  void initState() {
+    super.initState();
+    ImportacaoMangaManager.localizarBanco().then((banco) {
+      if (mounted) setState(() => _bancoDoMangaManager = banco);
+    });
+  }
+
+  Future<void> _importarDoMangaManager(File banco) async {
+    Navigator.pop(context);
+    setState(() => _isLoading = true);
+    try {
+      if (await importarDoMangaManager(context, banco)) {
+        widget.onBackupRestored();
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   void _mostrarFeedback(String msg, {bool isError = false}) {
     if (!mounted) return;
@@ -50,14 +75,14 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
       final tempDir = await getTemporaryDirectory();
       tempPath = p.join(
         tempDir.path,
-        'manga_backup_${DateTime.now().millisecondsSinceEpoch}.tar.gz',
+        'onde_parei_backup_${DateTime.now().millisecondsSinceEpoch}.tar.gz',
       );
       await _backupService.exportBackup(tempPath);
       final bytes = await File(tempPath).readAsBytes();
 
       final destino = await FilePicker.saveFile(
         dialogTitle: 'Salvar Backup',
-        fileName: 'manga_backup.tar.gz',
+        fileName: 'onde_parei_backup.tar.gz',
         bytes: bytes,
         mimeType: 'application/gzip',
       );
@@ -165,6 +190,21 @@ class _BackupManagerButtonState extends State<BackupManagerButton> {
                   ),
                   onTap: () => _executarRestauracao(merge: true),
                 ),
+                if (_bancoDoMangaManager case final banco?) ...[
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.drive_file_move_outline,
+                      color: Colors.orange,
+                    ),
+                    title: const Text('Importar do Manga Manager'),
+                    subtitle: const Text(
+                      'Traz a biblioteca do app com o nome antigo, instalado '
+                      'neste computador',
+                    ),
+                    onTap: () => _importarDoMangaManager(banco),
+                  ),
+                ],
               ],
             ),
           ),

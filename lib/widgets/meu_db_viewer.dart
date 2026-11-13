@@ -60,16 +60,16 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
         baseDir = directory.path;
 
         final String nomeDb = kDebugMode
-            ? 'manga_manager_debug.db'
-            : 'manga_manager.db';
+            ? DbHelper.nomeBancoDebug
+            : DbHelper.nomeBancoRelease;
         dbPath = p.join(directory.path, nomeDb);
       } else {
         baseDir = (await getApplicationDocumentsDirectory()).path;
         final dbDir = await getDatabasesPath();
 
         final String nomeDb = kDebugMode
-            ? 'manga_manager_debug.db'
-            : 'manga_manager.db';
+            ? DbHelper.nomeBancoDebug
+            : DbHelper.nomeBancoRelease;
         dbPath = p.join(dbDir, nomeDb);
       }
     } catch (e) {
@@ -329,7 +329,7 @@ class _MeuDbViewerState extends State<MeuDbViewer> {
                 if (!snapshot.hasData || snapshot.data!.isEmpty) {
                   return Center(
                     child: Text(
-                      'Nenhum mangá encontrado.',
+                      'Nenhum registro encontrado.',
                       style: TextStyle(
                         color: Theme.of(
                           context,

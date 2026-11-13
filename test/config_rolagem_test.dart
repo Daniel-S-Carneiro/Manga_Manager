@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/utils/config_rolagem.dart';
+import 'package:onde_parei/utils/config_rolagem.dart';
 
 void main() {
   group('ConfigRolagem.deTextos', () {

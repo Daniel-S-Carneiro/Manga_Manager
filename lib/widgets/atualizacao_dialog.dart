@@ -44,7 +44,7 @@ class AtualizacaoDialog extends StatefulWidget {
   });
 
   /// Nome do instalador baixado, na pasta temporária.
-  static const String nomeInstalador = 'manga_manager_update.exe';
+  static const String nomeInstalador = 'onde_parei_update.exe';
 
   @override
   State<AtualizacaoDialog> createState() => _AtualizacaoDialogState();
@@ -313,12 +313,12 @@ class _AtualizacaoDialogState extends State<AtualizacaoDialog> {
                 ultimo: true,
                 detalhe: _etapa == EtapaAtualizacao.instalando
                     ? const Text(
-                        'Fechando para instalar. O Manga Manager abre de novo '
+                        'Fechando para instalar. O app abre de novo '
                         'sozinho ao terminar.',
                       )
                     : const Text(
                         'O app fecha, instala a nova versão e abre de novo '
-                        'sozinho. Seus mangás e capas são mantidos.',
+                        'sozinho. Suas leituras e capas são mantidas.',
                       ),
               ),
               if (_erro != null) ...[

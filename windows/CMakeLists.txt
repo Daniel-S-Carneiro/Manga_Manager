@@ -1,9 +1,9 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(manga_manager LANGUAGES CXX)
+project(onde_parei LANGUAGES CXX)
 
 # The name of the executable created for the application.
-set(BINARY_NAME "manga_manager")
+set(BINARY_NAME "onde_parei")
 
 # Explicitly opt in to modern CMake behaviors
 cmake_policy(VERSION 3.14...3.25)

@@ -3,9 +3,11 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../database/db_helper.dart';
 import '../utils/tar_stream_helper.dart';
+import 'update_service.dart';
 
 class BackupService {
   static const bool _kVerboseMode = true;
@@ -75,12 +77,24 @@ class BackupService {
   }
 
   /// O banco dentro do backup. Prefere o do modo atual, mas aceita o do outro:
-  /// um backup do app instalado (`manga_manager.db`) também restaura no debug,
-  /// e o contrário também.
+  /// um backup do app instalado (`onde_parei.db`) também restaura no debug,
+  /// e o contrário também. Por último, aceita o banco do app quando ele se
+  /// chamava Manga Manager (`manga_manager.db`), que é como a biblioteca
+  /// passa para o app com o nome novo.
   static io.File? bancoDoBackup(List<io.File> arquivos, {required bool debug}) {
     final preferidos = debug
-        ? [DbHelper.nomeBancoDebug, DbHelper.nomeBancoRelease]
-        : [DbHelper.nomeBancoRelease, DbHelper.nomeBancoDebug];
+        ? [
+            DbHelper.nomeBancoDebug,
+            DbHelper.nomeBancoRelease,
+            DbHelper.nomeBancoDebugAntigo,
+            DbHelper.nomeBancoReleaseAntigo,
+          ]
+        : [
+            DbHelper.nomeBancoRelease,
+            DbHelper.nomeBancoDebug,
+            DbHelper.nomeBancoReleaseAntigo,
+            DbHelper.nomeBancoDebugAntigo,
+          ];
     for (final nome in preferidos) {
       for (final arquivo in arquivos) {
         if (p.basename(arquivo.path).toLowerCase() == nome) return arquivo;
@@ -162,6 +176,101 @@ class BackupService {
     String tarGzFilePath, {
     required bool merge,
   }) async {
+    final quantidade = await _restaurar(
+      merge: merge,
+      prefixo: 'restore',
+      // Tudo é conferido aqui, numa pasta temporária, antes de mexer nos
+      // dados: um backup com problema para a restauração neste ponto
+      preparar: (destPath) async {
+        final erro = await Isolate.run(
+          () => _extractIsolate({
+            'tarGzPath': tarGzFilePath,
+            'destPath': destPath,
+          }),
+        );
+        if (erro != null) throw Exception(erro);
+      },
+    );
+    return merge
+        ? 'Mesclagem concluída: $quantidade novos itens inseridos.'
+        : 'Backup substituído e restaurado com sucesso!';
+  }
+
+  /// Traz a biblioteca do Manga Manager (o app quando tinha o nome antigo)
+  /// instalado neste computador, a partir do [banco] dele. Funciona como a
+  /// restauração de um backup: [merge] acrescenta só as leituras que faltam;
+  /// sem ele, o banco daqui (leituras, capas e configurações) é trocado pelo
+  /// do Manga Manager. O banco e as capas do Manga Manager só são lidos.
+  Future<String> importarDoMangaManager(
+    io.File banco, {
+    required bool merge,
+  }) async {
+    final quantidade = await _restaurar(
+      merge: merge,
+      prefixo: 'importar',
+      preparar: (destPath) => _copiarDoMangaManager(banco, destPath),
+    );
+    if (merge) {
+      return quantidade == 1
+          ? 'Importação concluída: 1 leitura nova do Manga Manager.'
+          : 'Importação concluída: $quantidade leituras novas do Manga '
+                'Manager.';
+    }
+    return quantidade == 1
+        ? 'Biblioteca do Manga Manager importada: 1 leitura.'
+        : 'Biblioteca do Manga Manager importada: $quantidade leituras.';
+  }
+
+  /// Monta, em [destPath], o que a restauração de um backup encontra depois
+  /// de extrair o arquivo: uma cópia do [banco] do Manga Manager e as capas
+  /// que ele usa, em `capas/`.
+  static Future<void> _copiarDoMangaManager(
+    io.File banco,
+    String destPath,
+  ) async {
+    if (!banco.existsSync()) {
+      throw Exception('O banco do Manga Manager não foi encontrado.');
+    }
+    final pasta = io.Directory(destPath)..createSync(recursive: true);
+    final copia = p.join(pasta.path, p.basename(banco.path));
+    await banco.copy(copia);
+    // Uma gravação que o Manga Manager deixou pela metade fica no diário: ele
+    // vai junto, e o SQLite completa ou desfaz a gravação ao abrir a cópia
+    for (final sufixo in ['-journal', '-wal']) {
+      final diario = io.File('${banco.path}$sufixo');
+      if (diario.existsSync()) await diario.copy('$copia$sufixo');
+    }
+
+    final db = await openDatabase(copia);
+    try {
+      final pastaCapas = io.Directory(p.join(pasta.path, 'capas'))
+        ..createSync();
+      final linhas = await db.query('mangas', columns: ['capa_path']);
+      // O banco guarda o caminho completo das capas neste computador
+      for (final linha in linhas) {
+        final caminho = linha['capa_path'] as String?;
+        if (caminho == null || caminho.isEmpty) continue;
+        final capa = io.File(caminho);
+        final destino = io.File(
+          p.join(pastaCapas.path, DbHelper.nomeDoArquivo(caminho)),
+        );
+        if (capa.existsSync() && !destino.existsSync()) {
+          await capa.copy(destino.path);
+        }
+      }
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// Restauração: [preparar] põe numa pasta temporária o banco e as capas
+  /// (extraídos de um backup ou copiados do Manga Manager). Devolve quantas
+  /// leituras entraram ([merge]) ou quantas ficaram no banco.
+  Future<int> _restaurar({
+    required bool merge,
+    required String prefixo,
+    required Future<void> Function(String destPath) preparar,
+  }) async {
     final dbHelper = DbHelper();
     dbHelper.lockDatabase();
     io.Directory? extraidoDir;
@@ -170,18 +279,11 @@ class BackupService {
       final tempDir = await getTemporaryDirectory();
       final destPath = p.join(
         tempDir.path,
-        'restore_${DateTime.now().millisecondsSinceEpoch}',
+        '${prefixo}_${DateTime.now().millisecondsSinceEpoch}',
       );
       extraidoDir = io.Directory(destPath);
 
-      // Tudo é conferido aqui, numa pasta temporária, antes de mexer nos
-      // dados: um backup com problema para a restauração neste ponto
-      final erro = await Isolate.run(
-        () =>
-            _extractIsolate({'tarGzPath': tarGzFilePath, 'destPath': destPath}),
-      );
-
-      if (erro != null) throw Exception(erro);
+      await preparar(destPath);
 
       final arquivos = extraidoDir
           .listSync(recursive: true)
@@ -198,12 +300,12 @@ class BackupService {
 
       if (merge) {
         await dbHelper.reopenDatabase();
-        int inseridos = await dbHelper.mergeFromBackup(
-          dbExtraido.path,
-          extraidoDir,
-        );
-        return 'Mesclagem concluída: $inseridos novos mangás inseridos.';
+        return await dbHelper.mergeFromBackup(dbExtraido.path, extraidoDir);
       } else {
+        // A versão do app que roda aqui fica, e não a do banco que chega: com
+        // a de outro aparelho (um backup do Manga Manager traz a v2.2.2), a
+        // próxima abertura avisaria "Onde Parei atualizado"
+        final versaoDaqui = await _lerConfig(UpdateService.kVersaoApp);
         await dbHelper.closeDatabase();
         final dbRealPath = await dbHelper.getDatabasePathString();
 
@@ -235,7 +337,11 @@ class BackupService {
           capasDoBackup,
         );
         _logDebug('Capas apontadas para ${capasDirReal.path}: $corrigidas');
-        return 'Backup substituído e restaurado com sucesso!';
+
+        await _gravarConfig(UpdateService.kVersaoApp, versaoDaqui);
+        final db = await dbHelper.bancoEmManutencao();
+        final total = await db.rawQuery('SELECT COUNT(*) AS n FROM mangas');
+        return total.first['n'] as int;
       }
     } finally {
       if (extraidoDir != null && extraidoDir.existsSync()) {
@@ -245,6 +351,31 @@ class BackupService {
       }
       await dbHelper.reopenDatabase();
       dbHelper.unlockDatabase();
+    }
+  }
+
+  /// Uma configuração lida com o banco travado (restauração em andamento).
+  static Future<String?> _lerConfig(String chave) async {
+    final db = await DbHelper().bancoEmManutencao();
+    final linhas = await db.query(
+      'configuracoes',
+      columns: ['valor'],
+      where: 'chave = ?',
+      whereArgs: [chave],
+    );
+    return linhas.isEmpty ? null : linhas.first['valor'] as String?;
+  }
+
+  /// Grava (ou apaga, com [valor] nulo) uma configuração com o banco travado.
+  static Future<void> _gravarConfig(String chave, String? valor) async {
+    final db = await DbHelper().bancoEmManutencao();
+    if (valor == null) {
+      await db.delete('configuracoes', where: 'chave = ?', whereArgs: [chave]);
+    } else {
+      await db.insert('configuracoes', {
+        'chave': chave,
+        'valor': valor,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 }

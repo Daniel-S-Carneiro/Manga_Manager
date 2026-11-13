@@ -6,9 +6,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/database/db_helper.dart';
-import 'package:manga_manager/services/backup_service.dart';
-import 'package:manga_manager/utils/tar_stream_helper.dart';
+import 'package:onde_parei/database/db_helper.dart';
+import 'package:onde_parei/services/backup_service.dart';
+import 'package:onde_parei/utils/tar_stream_helper.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tar/tar.dart';
@@ -22,15 +22,19 @@ void main() {
   setUp(() async => raiz = await prepararBancoDeTeste('backup_teste'));
   tearDown(() => encerrarBancoDeTeste(raiz));
 
-  /// Backup como o que o app do Windows gera: `manga_manager.db` (app
-  /// instalado) com o caminho das capas no Windows, e a pasta `capas/`.
-  Future<String> backupDoWindows() async {
+  /// Backup como o que o app do Windows gera: o banco do app instalado com o
+  /// caminho das capas no Windows, e a pasta `capas/`. O [nomeDoBanco]
+  /// padrão é o de hoje; com `manga_manager.db` é o backup do app quando ele
+  /// se chamava Manga Manager (as capas ficavam em `manga_manager_capas`).
+  Future<String> backupDoWindows({
+    String nomeDoBanco = DbHelper.nomeBancoRelease,
+  }) async {
     final origem = Directory(p.join(raiz.path, 'origem'))..createSync();
     final capas = Directory(p.join(origem.path, 'capas'))..createSync();
     File(p.join(capas.path, 'capa_1.jpg')).writeAsBytesSync([1, 2, 3]);
     File(p.join(capas.path, 'Capa_2.PNG')).writeAsBytesSync([4, 5, 6]);
 
-    final dbPath = p.join(origem.path, DbHelper.nomeBancoRelease);
+    final dbPath = p.join(origem.path, nomeDoBanco);
     final db = await openDatabase(dbPath);
     await db.execute('''
       CREATE TABLE mangas (
@@ -61,7 +65,7 @@ void main() {
     });
     await db.close();
 
-    final tarGz = p.join(raiz.path, 'manga_backup.tar.gz');
+    final tarGz = p.join(raiz.path, 'onde_parei_backup.tar.gz');
     await TarStreamHelper.compressToTarGz(
       dbPath: dbPath,
       capasDirPath: capas.path,
@@ -108,6 +112,47 @@ void main() {
       );
     },
   );
+
+  group('backup do Manga Manager (nome antigo do app)', () {
+    test(
+      'substituir: o banco antigo vira o banco daqui, com capas e tipo',
+      () async {
+        final backup = await backupDoWindows(
+          nomeDoBanco: DbHelper.nomeBancoReleaseAntigo,
+        );
+
+        final mensagem = await BackupService().restoreBackup(
+          backup,
+          merge: false,
+        );
+        expect(mensagem, contains('sucesso'));
+
+        final linhas = await DbHelper().getMangas();
+        expect(linhas.map((l) => l['nome_pt']), hasLength(3));
+        expect(linhas.map((l) => l['tipo']), everyElement(isNull));
+
+        final pastaCapas = (await DbHelper().getCapasDirectory()).path;
+        final comCapa = linhas.firstWhere((l) => l['nome_pt'] == 'Com capa');
+        expect(comCapa['capa_path'], p.join(pastaCapas, 'capa_1.jpg'));
+        expect(File(comCapa['capa_path'] as String).existsSync(), isTrue);
+        // O banco antigo não vira "capa"
+        expect(
+          File(
+            p.join(pastaCapas, DbHelper.nomeBancoReleaseAntigo),
+          ).existsSync(),
+          isFalse,
+        );
+      },
+    );
+
+    test('mesclar: insere os itens do banco antigo', () async {
+      final backup = await backupDoWindows(
+        nomeDoBanco: DbHelper.nomeBancoReleaseAntigo,
+      );
+      final mensagem = await BackupService().restoreBackup(backup, merge: true);
+      expect(mensagem, contains('3 novos'));
+    });
+  });
 
   test('mesclar: insere os mangás com as capas apontando para cá', () async {
     final backup = await backupDoWindows();
@@ -216,7 +261,7 @@ void main() {
 
     test('grava direto no destino, sem cópia na pasta temporária', () async {
       await capaNoApp();
-      final destino = p.join(raiz.path, 'saida', 'manga_backup.tar.gz');
+      final destino = p.join(raiz.path, 'saida', 'onde_parei_backup.tar.gz');
       Directory(p.dirname(destino)).createSync();
 
       expect(await BackupService().exportBackup(destino), destino);
@@ -249,7 +294,7 @@ void main() {
         // Trava a capa: a leitura dela falha no meio do backup
         final trava = capa.openSync(mode: FileMode.append)
           ..lockSync(FileLock.exclusive);
-        final destino = p.join(raiz.path, 'manga_backup.tar.gz');
+        final destino = p.join(raiz.path, 'onde_parei_backup.tar.gz');
         try {
           await expectLater(
             BackupService().exportBackup(destino),
@@ -471,6 +516,26 @@ void main() {
       expect(
         BackupService.bancoDoBackup([File('/b/x.jpg')], debug: true),
         isNull,
+      );
+    });
+
+    test('aceita o banco do Manga Manager, mas prefere o de hoje', () {
+      final antigo = File('/b/${DbHelper.nomeBancoReleaseAntigo}');
+      final antigoDebug = File('/b/${DbHelper.nomeBancoDebugAntigo}');
+      final atual = File('/b/${DbHelper.nomeBancoRelease}');
+      expect(BackupService.bancoDoBackup([antigo], debug: false), antigo);
+      expect(BackupService.bancoDoBackup([antigo], debug: true), antigo);
+      expect(
+        BackupService.bancoDoBackup([antigo, antigoDebug], debug: true),
+        antigoDebug,
+      );
+      expect(BackupService.bancoDoBackup([antigo, atual], debug: true), atual);
+      // Maiúsculas no nome (a extração no Windows passa para minúsculas)
+      expect(
+        BackupService.bancoDoBackup([
+          File('/b/Manga_Manager.DB'),
+        ], debug: false),
+        isNotNull,
       );
     });
   });

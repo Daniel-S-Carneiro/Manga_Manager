@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "manga_manager" "\0"
+            VALUE "CompanyName", "io.github.danielscarneiro" "\0"
+            VALUE "FileDescription", "Onde Parei" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "manga_manager" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "manga_manager.exe" "\0"
-            VALUE "ProductName", "manga_manager" "\0"
+            VALUE "InternalName", "onde_parei" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Daniel S. Carneiro" "\0"
+            VALUE "OriginalFilename", "onde_parei.exe" "\0"
+            VALUE "ProductName", "OndeParei" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

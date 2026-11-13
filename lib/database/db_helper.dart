@@ -26,8 +26,13 @@ class DbHelper {
   void unlockDatabase() => _isLocked = false;
 
   /// Nome do arquivo de banco de cada modo (o debug usa dados separados).
-  static const String nomeBancoRelease = 'manga_manager.db';
-  static const String nomeBancoDebug = 'manga_manager_debug.db';
+  static const String nomeBancoRelease = 'onde_parei.db';
+  static const String nomeBancoDebug = 'onde_parei_debug.db';
+
+  /// Bancos do app quando ele se chamava Manga Manager (até a v2.2.2). O
+  /// backup feito nele restaura aqui (BackupService.bancoDoBackup).
+  static const String nomeBancoReleaseAntigo = 'manga_manager.db';
+  static const String nomeBancoDebugAntigo = 'manga_manager_debug.db';
 
   /// O banco aberto para o backup e a restauração, que rodam com o banco
   /// travado para o resto do app ([database] lança exceção nesse período).
@@ -43,7 +48,7 @@ class DbHelper {
       caminho.split(RegExp(r'[\\/]')).last;
 
   /// Caminho da capa depois de restaurar um backup. O banco guarda o caminho
-  /// completo do aparelho de origem (ex.: `C:\...\manga_manager_capas/capa_1.jpg`);
+  /// completo do aparelho de origem (ex.: `C:\...\onde_parei_capas/capa_1.jpg`);
   /// se a capa veio no backup, passa a apontar para [pastaCapas] daqui.
   /// [capasDoBackup] vai do nome em minúsculas para o nome do arquivo.
   static String? caminhoCapaRestaurada(
@@ -86,8 +91,8 @@ class DbHelper {
   Future<io.Directory> getCapasDirectory() async {
     final appDir = await getApplicationDocumentsDirectory();
     final folderName = kDebugMode
-        ? 'manga_manager_capas_debug'
-        : 'manga_manager_capas';
+        ? 'onde_parei_capas_debug'
+        : 'onde_parei_capas';
     final capasDir = io.Directory(p.join(appDir.path, folderName));
     if (!await capasDir.exists()) {
       await capasDir.create(recursive: true);

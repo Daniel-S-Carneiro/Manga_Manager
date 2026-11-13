@@ -19,8 +19,10 @@ import 'utils/error_handler.dart';
 import 'utils/licencas.dart';
 import 'utils/lista_paginada.dart';
 import 'utils/theme_notifier.dart';
+import 'services/importacao_manga_manager.dart';
 import 'services/update_service.dart';
 import 'controllers/refresh_controller.dart';
+import 'widgets/biblioteca_vazia.dart';
 
 // import 'package:webview_cef/webview_cef.dart';
 // import 'package:screen_retriever/screen_retriever.dart';
@@ -134,7 +136,7 @@ void main() async {
           const Size minSize = Size(400, 600);
 
           WindowOptions windowOptions = const WindowOptions(
-            title: 'Manga Manager',
+            title: 'Onde Parei',
             size: Size(1024, 700),
             minimumSize: minSize,
             center: true,
@@ -150,7 +152,7 @@ void main() async {
         }
       }
 
-      runApp(const MangaManagerApp());
+      runApp(const OndePareiApp());
 
       ErrorWidget.builder = (FlutterErrorDetails details) {
         return Material(
@@ -180,8 +182,8 @@ void main() async {
   );
 }
 
-class MangaManagerApp extends StatelessWidget {
-  const MangaManagerApp({super.key});
+class OndePareiApp extends StatelessWidget {
+  const OndePareiApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -192,6 +194,7 @@ class MangaManagerApp extends StatelessWidget {
           valueListenable: appZoomNotifier,
           builder: (context, zoom, _) {
             return MaterialApp(
+              title: 'Onde Parei',
               debugShowCheckedModeBanner: false,
               themeMode: currentMode,
               theme: ThemeController.lightTheme,
@@ -263,6 +266,10 @@ class MainScreenState extends State<MainScreen> {
   FiltroLista _filtro = const FiltroLista();
   Timer? _debounceTimer;
 
+  /// Banco do Manga Manager neste computador, para a lista vazia oferecer a
+  /// importação (só no Windows e no Linux)
+  File? _bancoDoMangaManager;
+
   @override
   void initState() {
     super.initState();
@@ -270,6 +277,9 @@ class MainScreenState extends State<MainScreen> {
     globalRefreshController.addListener(_onRefreshRequested);
     _scrollController.addListener(_onScroll);
     _carregarLote(refresh: true);
+    ImportacaoMangaManager.localizarBanco().then((banco) {
+      if (mounted) setState(() => _bancoDoMangaManager = banco);
+    });
 
     // WidgetsBinding.instance.addPostFrameCallback((_) {
     //   _logDisplayMetrics();
@@ -434,7 +444,7 @@ class MainScreenState extends State<MainScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Meu Gerenciador de Mangás',
+                        'Minhas Leituras',
                         style: TextStyle(
                           fontSize: 22,
                           color: theme.colorScheme.onSurface,
@@ -515,6 +525,10 @@ class MainScreenState extends State<MainScreen> {
                         ? const Center(child: CircularProgressIndicator())
                         : _mangas.isEmpty && _filtro.restringe
                         ? _semResultados(theme)
+                        : _mangas.isEmpty && !_isLoading && !_hasMore
+                        ? BibliotecaVazia(
+                            bancoDoMangaManager: _bancoDoMangaManager,
+                          )
                         : ReorderableGridView.builder(
                             controller: _scrollController,
                             // Trava o scroll da grade enquanto o Ctrl está pressionado
@@ -632,7 +646,7 @@ class MainScreenState extends State<MainScreen> {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                      'Não é possível alterar a ordem durante uma busca, com filtros ou antes de carregar todos os mangás.',
+                                      'Não é possível alterar a ordem durante uma busca, com filtros ou antes de carregar a lista inteira.',
                                     ),
                                   ),
                                 );

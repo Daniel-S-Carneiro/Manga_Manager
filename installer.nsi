@@ -4,17 +4,29 @@
 !include "FileFunc.nsh"
 
 # --- Definições do App ---
-!define APP_NAME "Manga Manager"
+!define APP_NAME "Onde Parei"
 !ifndef APP_VERSION
   !error "APP_VERSION deve ser passado pelo build_installer.cmd (lido do pubspec.yaml)"
 !endif
 !define PUBLISHER "Daniel S. Carneiro"
-!define EXE_NAME "manga_manager.exe"
+!define EXE_NAME "onde_parei.exe"
 !define REG_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
+# Dados do app. Precisam bater com o CompanyName e o ProductName do
+# windows\runner\Runner.rc (o path_provider monta a pasta com eles) e com os
+# nomes do lib\database\db_helper.dart
+!define PASTA_EMPRESA "$APPDATA\io.github.danielscarneiro"
+!define PASTA_DADOS "${PASTA_EMPRESA}\OndeParei"
+!define BANCO "onde_parei.db"
+!define BANCO_DEBUG "onde_parei_debug.db"
+!define CAPAS "$DOCUMENTS\onde_parei_capas"
+!define CAPAS_DEBUG "$DOCUMENTS\onde_parei_capas_debug"
 
 Name "${APP_NAME}"
-OutFile "MangaManager_Setup.exe"
-InstallDir "$PROGRAMFILES\${APP_NAME}"
+OutFile "OndeParei_Setup.exe"
+# O app é de 64 bits. Uma atualização vai para a pasta da instalação
+# anterior, se o usuário tiver escolhido outra
+InstallDir "$PROGRAMFILES64\${APP_NAME}"
+InstallDirRegKey HKLM "${REG_UNINSTALL_KEY}" "InstallLocation"
 Unicode true
 
 ManifestDPIAware true
@@ -174,22 +186,22 @@ Section "Principal (Obrigatório)" SEC01
         DetailPrint "Limpando dados anteriores a pedido do usuário..."
 
         # Verifica se existe banco de debug antes de apagar
-        ${If} ${FileExists} "$APPDATA\com.example\manga_manager\manga_manager_debug.db"
-            MessageBox MB_ICONQUESTION|MB_YESNO "Detectamos um banco de dados de DEBUG (manga_manager_debug.db).$\nDeseja apagar TAMBÉM os dados de desenvolvimento?" /SD IDNO IDYES apagar_tudo_reparo_com_debug IDNO apagar_so_producao_reparo
+        ${If} ${FileExists} "${PASTA_DADOS}\${BANCO_DEBUG}"
+            MessageBox MB_ICONQUESTION|MB_YESNO "Detectamos um banco de dados de DEBUG (${BANCO_DEBUG}).$\nDeseja apagar TAMBÉM os dados de desenvolvimento?" /SD IDNO IDYES apagar_tudo_reparo_com_debug IDNO apagar_so_producao_reparo
 
             apagar_tudo_reparo_com_debug:
-            RMDir /r "$APPDATA\com.example\manga_manager"
-            RMDir /r "$DOCUMENTS\manga_manager_capas"
-            RMDir /r "$DOCUMENTS\manga_manager_capas_debug"
+            RMDir /r "${PASTA_DADOS}"
+            RMDir /r "${CAPAS}"
+            RMDir /r "${CAPAS_DEBUG}"
             Goto fim_limpeza_reparo
 
             apagar_so_producao_reparo:
-            Delete "$APPDATA\com.example\manga_manager\manga_manager.db"
-            RMDir /r "$DOCUMENTS\manga_manager_capas"
+            Delete "${PASTA_DADOS}\${BANCO}"
+            RMDir /r "${CAPAS}"
             Goto fim_limpeza_reparo
         ${Else}
-            RMDir /r "$APPDATA\com.example\manga_manager"
-            RMDir /r "$DOCUMENTS\manga_manager_capas"
+            RMDir /r "${PASTA_DADOS}"
+            RMDir /r "${CAPAS}"
         ${EndIf}
 
         fim_limpeza_reparo:
@@ -213,8 +225,8 @@ Section "Principal (Obrigatório)" SEC01
     # Ícone, tamanho e detalhes mostrados no Painel de Controle
     WriteRegStr HKLM "${REG_UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\${EXE_NAME},0"
     WriteRegStr HKLM "${REG_UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
-    WriteRegStr HKLM "${REG_UNINSTALL_KEY}" "URLInfoAbout" "https://github.com/Daniel-S-Carneiro/Manga_Manager"
-    WriteRegStr HKLM "${REG_UNINSTALL_KEY}" "Comments" "Gerenciador de mangás com leitor embutido"
+    WriteRegStr HKLM "${REG_UNINSTALL_KEY}" "URLInfoAbout" "https://github.com/Daniel-S-Carneiro/Onde-Parei"
+    WriteRegStr HKLM "${REG_UNINSTALL_KEY}" "Comments" "Gerenciador de leitura (mangá, manhwa, webtoon e novel) com leitor embutido"
     WriteRegDWORD HKLM "${REG_UNINSTALL_KEY}" "NoModify" 1
     WriteRegDWORD HKLM "${REG_UNINSTALL_KEY}" "NoRepair" 1
     ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
@@ -245,25 +257,24 @@ Section "Uninstall"
     checar_debug:
 
     # Se existir o DB de debug, pergunta se o dev quer apagar ele também
-    ${If} ${FileExists} "$APPDATA\com.example\manga_manager\manga_manager_debug.db"
-        MessageBox MB_ICONQUESTION|MB_YESNO "Detectamos um banco de dados de desenvolvimento (manga_manager_debug.db).$\n$\nDeseja apagar TAMBÉM os dados e capas de DEBUG?" /SD IDNO IDYES apagar_tudo_com_debug IDNO apagar_so_producao
+    ${If} ${FileExists} "${PASTA_DADOS}\${BANCO_DEBUG}"
+        MessageBox MB_ICONQUESTION|MB_YESNO "Detectamos um banco de dados de desenvolvimento (${BANCO_DEBUG}).$\n$\nDeseja apagar TAMBÉM os dados e capas de DEBUG?" /SD IDNO IDYES apagar_tudo_com_debug IDNO apagar_so_producao
     ${Else}
         Goto apagar_tudo_com_debug
     ${EndIf}
 
     apagar_tudo_com_debug:
     DetailPrint "Removendo todos os dados, incluindo arquivos de debug..."
-    RMDir /r "$APPDATA\com.example\manga_manager"
-    RMDir /r "$APPDATA\manga_manager"
-    RMDir /r "$DOCUMENTS\manga_manager_capas"
-    RMDir /r "$DOCUMENTS\manga_manager_capas_debug"
+    RMDir /r "${PASTA_DADOS}"
+    RMDir /r "${CAPAS}"
+    RMDir /r "${CAPAS_DEBUG}"
+    RMDir "${PASTA_EMPRESA}"
     Goto prosseguir_desinstalacao
 
     apagar_so_producao:
     DetailPrint "Removendo apenas os dados de produção e mantendo ambiente de debug..."
-    Delete "$APPDATA\com.example\manga_manager\manga_manager.db"
-    Delete "$APPDATA\manga_manager\manga_manager.db"
-    RMDir /r "$DOCUMENTS\manga_manager_capas"
+    Delete "${PASTA_DADOS}\${BANCO}"
+    RMDir /r "${CAPAS}"
     Goto prosseguir_desinstalacao
 
     manter_tudo:

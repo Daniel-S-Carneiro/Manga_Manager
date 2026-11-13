@@ -5,8 +5,8 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:manga_manager/database/db_helper.dart';
-import 'package:manga_manager/utils/classificacao.dart';
+import 'package:onde_parei/database/db_helper.dart';
+import 'package:onde_parei/utils/classificacao.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'apoio/banco_de_teste.dart';
