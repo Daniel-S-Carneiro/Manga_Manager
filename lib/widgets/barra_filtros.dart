@@ -1,16 +1,28 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../utils/classificacao.dart';
 
-/// Filtros da lista principal (tipo e status), abaixo da busca.
+/// Filtros da lista principal (tipo e status), montados pela `TopBar` ao lado
+/// da busca ou abaixo dela.
 ///
 /// Só monta o [FiltroLista] novo e entrega em [aoMudar]; quem recarrega a
 /// lista é a tela.
 class BarraFiltros extends StatelessWidget {
-  const BarraFiltros({super.key, required this.filtro, required this.aoMudar});
+  const BarraFiltros({
+    super.key,
+    required this.filtro,
+    required this.aoMudar,
+    this.compacta = false,
+  });
 
   final FiltroLista filtro;
   final ValueChanged<FiltroLista> aoMudar;
+
+  /// Na linha da busca: o "Limpar filtros" vira só o ícone, com o texto na
+  /// dica, para não roubar mais espaço da busca.
+  final bool compacta;
 
   static const List<FiltroTipo> _opcoesDeTipo = [
     FiltroTipo.todos,
@@ -23,12 +35,62 @@ class BarraFiltros extends StatelessWidget {
     FiltroTipo.de(TipoLeitura.outro),
   ];
 
+  static const double _espaco = 8;
+
+  /// Botão de limpar da barra compacta (só o ícone)
+  static const double _larguraDoLimparCompacto = 40;
+
+  /// Largura da barra compacta no pior caso: os nomes mais longos de tipo e
+  /// de status escolhidos, mais o botão de limpar. A `TopBar` usa para decidir
+  /// se os filtros cabem na linha da busca. Medir o pior caso, e não as
+  /// opções atuais, faz os filtros não trocarem de linha a cada escolha.
+  ///
+  /// O texto é medido com a fonte e a escala de texto da tela, então a conta
+  /// vale para qualquer sistema.
+  static double larguraCompactaMaxima(BuildContext context) {
+    final estiloBase = DefaultTextStyle.of(context).style;
+    final escala = MediaQuery.textScalerOf(context);
+
+    double medir(String texto, {bool negrito = false}) {
+      final pintor = TextPainter(
+        text: TextSpan(
+          text: texto,
+          style: estiloBase.merge(
+            TextStyle(
+              fontSize: _MenuDoFiltro.tamanhoDaFonte,
+              fontWeight: negrito ? FontWeight.bold : null,
+            ),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: escala,
+      )..layout();
+      final largura = pintor.width;
+      pintor.dispose();
+      return largura;
+    }
+
+    double menu(String rotulo, Iterable<String> valores) =>
+        _MenuDoFiltro.larguraFixa +
+        medir('$rotulo: ') +
+        valores.map((v) => medir(v, negrito: true)).reduce(math.max);
+
+    return menu('Tipo', _opcoesDeTipo.map((o) => o.nome)) +
+        _espaco +
+        menu('Status', [
+          'Todos',
+          for (final status in StatusLeitura.todos) status.valor,
+        ]) +
+        _espaco +
+        _larguraDoLimparCompacto;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Wrap(
-      spacing: 8,
+      spacing: _espaco,
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
@@ -84,7 +146,23 @@ class BarraFiltros extends StatelessWidget {
             );
           },
         ),
-        if (filtro.temFiltro)
+        if (filtro.temFiltro && compacta)
+          // Tamanho fixo: a largura entra na conta de larguraCompactaMaxima, e
+          // o padrão do IconButton muda com a plataforma
+          SizedBox.square(
+            dimension: _larguraDoLimparCompacto,
+            child: IconButton(
+              onPressed: () => aoMudar(filtro.semFiltros()),
+              icon: const Icon(Icons.filter_alt_off_rounded, size: 20),
+              tooltip: 'Limpar filtros',
+              color: colorScheme.primary,
+              padding: EdgeInsets.zero,
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          )
+        else if (filtro.temFiltro)
           TextButton.icon(
             onPressed: () => aoMudar(filtro.semFiltros()),
             icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
@@ -125,6 +203,13 @@ class _MenuDoFiltro extends StatelessWidget {
   final bool ativo;
   final List<_ItemDoFiltro> itens;
   final ValueChanged<int> aoEscolher;
+
+  static const double tamanhoDaFonte = 13;
+
+  /// O que não é texto na largura da etiqueta: margem de 12 à esquerda e de
+  /// 6 à direita, a seta de 20 e a borda de 1 dos dois lados. Usado pela
+  /// medida de [BarraFiltros.larguraCompactaMaxima].
+  static const double larguraFixa = 12 + 6 + 20 + 2;
 
   @override
   Widget build(BuildContext context) {
@@ -179,14 +264,14 @@ class _MenuDoFiltro extends StatelessWidget {
               '$rotulo: ',
               style: TextStyle(
                 color: corDoTexto.withValues(alpha: 0.7),
-                fontSize: 13,
+                fontSize: tamanhoDaFonte,
               ),
             ),
             Text(
               valorAtual,
               style: TextStyle(
                 color: corDoTexto,
-                fontSize: 13,
+                fontSize: tamanhoDaFonte,
                 fontWeight: FontWeight.bold,
               ),
             ),

@@ -10,7 +10,6 @@ import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'database/db_helper.dart';
-import 'widgets/barra_filtros.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/manga_form.dart';
 import 'widgets/manga_card.dart';
@@ -504,21 +503,10 @@ class MainScreenState extends State<MainScreen> {
                     },
                     onToggleTheme: ThemeController.toggleTheme,
                     onSearchChanged: _onSearchChanged,
-                  ),
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      isDesktop ? 204 : 16,
-                      isDesktop ? 0 : 10,
-                      isDesktop ? 204 : 16,
-                      4,
-                    ),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: BarraFiltros(
-                        filtro: _filtro,
-                        aoMudar: _mudarFiltro,
-                      ),
-                    ),
+                    // Os filtros ficam na linha da busca quando cabem; senão,
+                    // a TopBar os põe logo abaixo dela
+                    filtro: _filtro,
+                    aoMudarFiltro: _mudarFiltro,
                   ),
                   Expanded(
                     child: _mangas.isEmpty && _isLoading
